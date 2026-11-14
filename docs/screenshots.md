@@ -19,16 +19,16 @@ is about, and save as PNG.
 
 | File | Shows | Guide and step |
 |---|---|---|
-| `tailscale-tray-login.png` | The Tailscale tray icon menu with **Log in** | Host quick path 3, controller 1 |
-| `tailscale-admin-key-expiry.png` | Admin console `...` menu with **Disable key expiry** (machine names covered) | Host quick path 3 |
-| `powershell-run-as-admin.png` | Start menu, right-click Windows PowerShell, **Run as administrator** | Host quick path 2 |
-| `install-host-output.png` | The end of `Install-Host.ps1` with PASS lines (addresses covered) | Host quick path 3 |
-| `rustdesk-settings-open.png` | RustDesk main window with the Settings menu (ID and password covered) | Host quick path 4 |
-| `rustdesk-security-unlock.png` | Security page with **Unlock security settings** | Host quick path 4 |
-| `rustdesk-permanent-password.png` | Password section with **Use permanent password** | Host quick path 4 |
-| `rustdesk-2fa-toggle.png` | Two-factor switch, QR code cropped out | Host quick path 4 |
-| `rustdesk-direct-ip-whitelist.png` | Direct IP access and the whitelist (addresses covered) | Host manual 3 |
-| `rustdesk-network-servers.png` | Network page with `127.0.0.1` in ID and Relay server | Host manual 3, controller 2 |
+| `tailscale-tray-login.png` | The Tailscale tray icon menu with **Log in** | Host manual 1, controller 1 |
+| `tailscale-admin-key-expiry.png` | Admin console `...` menu with **Disable key expiry** (machine names covered) | Host manual 1 |
+| `powershell-run-as-admin.png` | Start menu, right-click Windows PowerShell, **Run as administrator** | Host manual 3 |
+| `install-host-output.png` | The end of `Install-Host.ps1` with PASS lines (addresses covered) | Host script path 3 |
+| `rustdesk-settings-open.png` | RustDesk main window with the Settings menu (ID and password covered) | Host manual 4 |
+| `rustdesk-security-unlock.png` | Security page with **Unlock security settings** | Host manual 4 |
+| `rustdesk-permanent-password.png` | Password section with **Use permanent password** | Host manual 4 |
+| `rustdesk-2fa-toggle.png` | Two-factor switch, QR code cropped out | Host manual 4 |
+| `rustdesk-direct-ip-whitelist.png` | Direct IP access and the whitelist (addresses covered) | Host manual 4 |
+| `rustdesk-network-servers.png` | Network page with `127.0.0.1` in ID and Relay server | Host manual 4, controller 2 |
 | `test-host-output.png` | `Test-Host.ps1` all PASS | Check the host |
 | `rustdesk-connect-box.png` | Controller's **Control Remote Desktop** box | Controller 3 |
 | `rustdesk-2fa-prompt.png` | The 6-digit code prompt when connecting | Controller 3 |

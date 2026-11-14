@@ -3,21 +3,23 @@
 [Back to the README](../README.md) · [Glossary](glossary.md)
 
 > **Do this on the CONTROLLER**: the Windows PC you'll sit at (for example your laptop). The computer you'll
-> control is the host; set it up first with [its own guide](host-windows.md).
+> control is the host; set it up with [its own guide](host-windows.md).
 
 A controller only views the host and sends your mouse and keyboard, so it needs far less than the host: two
 installs, two settings, and the tests that prove the host is locked down.
+
+**Example addresses in these guides:** the host is `100.64.0.10` (home address `192.168.0.10`) and this controller
+is `100.64.0.11`. Use your real ones from the Tailscale admin console.
 
 ## 1. Join Tailscale
 
 1. Download Tailscale from [tailscale.com/download](https://tailscale.com/download) and install it.
 2. Click the Tailscale icon by the clock (click `^` if you don't see it), choose **Log in**, and sign in with
    the **same account as the host**. Two accounts make two separate networks that can't see each other.
-3. Open the [Tailscale admin console](https://login.tailscale.com/admin/machines). Find this PC and note its
-   address starting with `100.`. The host needs it for its whitelist ([host guide, second
-   run](host-windows.md#5-second-run-with-the-controllers-address)).
-4. Check the two can see each other. Open PowerShell (Windows key, type `powershell`, Enter) and run this with
-   the host's address in place of the example:
+3. Open the [Tailscale admin console](https://login.tailscale.com/admin/machines). Find **this PC** and note its
+   address starting with `100.`. The host needs it for its whitelist.
+4. Check the two can see each other. Open PowerShell (press the Windows key, type `powershell`, press Enter) and
+   run this with the **host's** address in place of the example:
 
 ```powershell
 ping 100.64.0.10
@@ -26,13 +28,16 @@ ping 100.64.0.10
 Lines saying `Reply from ...` mean it works. "Request timed out" means they can't see each other: check both
 show as connected in the admin console.
 
+Now go back to the host and add this PC's address to its whitelist
+([host guide, step 4](host-windows.md#4-rustdesk-security-settings)).
+
 ## 2. Install RustDesk
 
 1. Download it **only** from [github.com/rustdesk/rustdesk/releases](https://github.com/rustdesk/rustdesk/releases):
    under the newest release, open **Assets** and pick the file ending in `x86_64.exe`.
 2. Run it and choose **Install**.
 3. Two settings keep the controller from becoming a way in itself. In RustDesk, open **Settings**:
-   - **Security:** leave **Enable direct IP access** off (the default). Then nothing on this PC listens for
+   - **Security:** leave **Enable direct IP access** off (the default). Then nothing on this PC accepts direct
      RustDesk connections, and it needs no firewall step.
    - **Network:** set **ID server** and **Relay server** to `127.0.0.1`. Out of the box, anyone with this PC's
      RustDesk ID and the one-time password shown in its window could connect through RustDesk's public servers.
@@ -41,10 +46,14 @@ show as connected in the admin console.
 ## 3. Connect
 
 1. Make sure Tailscale shows **Connected** on both PCs.
-2. In RustDesk's **Control Remote Desktop** box, type the host's `100.x` address and click **Connect**.
-3. Enter the host's permanent password, then the 6-digit code from your authenticator app.
+2. In RustDesk's **Control Remote Desktop** box, type the **host's** `100.x` address and click **Connect**.
+3. Enter the host's permanent password, then the 6-digit code from your authenticator app. **Leave "Remember
+   password" unticked**, and don't tick any option to trust this device for two-factor: otherwise anyone who
+   gets hold of this PC unlocked can open the host without knowing either.
 4. The host's screen appears. With two monitors, the monitor buttons in the toolbar switch between them. If the
    picture lags, open the display menu in the toolbar and set the frame rate to **30**.
+
+Keep this PC locked when you're away from it (Windows key + L).
 
 ## Test from the controller
 
@@ -52,7 +61,7 @@ These prove each lock on the host works. **Run them here, on the controller, nev
 doesn't filter a PC's connections to its own addresses, so a test run on the host always passes and proves
 nothing. For the home network test, this PC must be on the same home network as the host.
 
-You need two of the host's addresses:
+You need two of the **host's** addresses:
 
 - Its **Tailscale address** (`100.x`), from the admin console.
 - Its **home address**: on the host, run `ipconfig` and read **IPv4 Address** under Wi-Fi or Ethernet (often
@@ -60,9 +69,10 @@ You need two of the host's addresses:
 
 ### With the script
 
-Get the scripts the same way as on the host ([host guide, step 1](host-windows.md#1-get-the-scripts)), open a
-**normal** PowerShell (not admin) in `scripts\windows`, allow scripts for this window, and run the test with your
-two addresses in place of the examples:
+1. Get the scripts as on the host ([host guide, script path, step 1](host-windows.md#1-get-the-scripts)).
+2. Open a **normal** PowerShell (not as administrator): press the Windows key, type `powershell`, press Enter.
+3. Type `cd ` (with a space), drag the `windows` folder from File Explorer into the window, and press **Enter**.
+4. Allow scripts for this window, then run the test with your two host addresses in place of the examples:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
@@ -102,7 +112,8 @@ Test-NetConnection 192.168.0.10 -Port 21118
 | What you see | What it means | Fix |
 |---|---|---|
 | "Your ip is blocked by the peer" | The host's whitelist doesn't have this PC's address. | Check this PC's `100.x` address in the admin console, and that Tailscale is on here. Then add it on the host. |
-| "Failed to connect" or a timeout | This PC can't reach the host. | Check Tailscale is connected on both and the host is awake. Try `ping`. If ping works, run `.\Test-Host.ps1` on the host. |
+| "Failed to connect" or a timeout | This PC can't reach the host. | Check Tailscale is connected on both and the host is awake. Try `ping`. If ping works, [check the host](host-windows.md#check-the-host). |
 | "The '<' operator is reserved" | Angle brackets were left in a command. | Type the real address without `<` and `>`. |
-| `TcpTestSucceeded : True` on the home address | The host's firewall step isn't working. | On the host, run `.\Test-Host.ps1` and fix what it marks FAIL. |
+| "That's this PC's own address" | You gave the controller's address instead of the host's. | Use the host's `100.x` address. |
+| `TcpTestSucceeded : True` on the home address | The host's firewall step isn't working. | [Check the host](host-windows.md#check-the-host) and fix what it marks FAIL. |
 | Lag or a choppy picture | The frame rate is too high. | Set it to 30 in the session's display menu. |

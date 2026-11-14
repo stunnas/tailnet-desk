@@ -8,12 +8,15 @@
 When you're done, this PC can be reached by RustDesk from your controllers, only through Tailscale, only with a
 password and a two-factor code, and from nowhere else.
 
+**Example addresses in these guides:** the host is `100.64.0.10` (home address `192.168.0.10`) and the controller
+is `100.64.0.11`. Yours will be different: always use the real ones from your Tailscale admin console.
+
 ## Contents
 
 1. [Before you start](#before-you-start)
 2. [The order across both devices](#the-order-across-both-devices)
-3. [Quick path: the setup script](#quick-path-the-setup-script)
-4. [Manual path](#manual-path)
+3. [Manual path](#manual-path)
+4. [Script path (not yet tested on a real PC)](#script-path-not-yet-tested-on-a-real-pc)
 5. [Check the host](#check-the-host)
 6. [When something goes wrong](#when-something-goes-wrong)
 
@@ -25,34 +28,135 @@ password and a two-factor code, and from nowhere else.
 - **An authenticator app on your phone**, such as Microsoft Authenticator or Google Authenticator.
 - **A password manager** (Bitwarden, 1Password, or the one built into your browser) to make and store a long
   random password.
-- About 20 minutes with the script, 45 by hand.
+- About 45 minutes.
 
 ## The order across both devices
 
 The host's whitelist needs the controller's Tailscale address, and the controller only gets one after it joins
 Tailscale. So:
 
-1. **Host:** this guide, up to the point where it asks for the controller's address.
-2. **Controller:** its guide, up to joining Tailscale. Note its `100.x` address.
-3. **Host:** add the controller's address (the script's second run, or the whitelist by hand).
-4. **Controller:** connect and run the tests.
+1. **Host:** this guide, steps 1 and 2 of the manual path (or the script's first run).
+2. **Controller:** [its guide, step 1](controller-windows.md#1-join-tailscale). Note its `100.x` address.
+3. **Host:** finish this guide with the controller's address in the whitelist.
+4. **Controller:** [connect](controller-windows.md#3-connect) and [run the tests](controller-windows.md#test-from-the-controller).
 
-## Quick path: the setup script
+## Manual path
 
-The script does every step except the ones that need you: signing in to Tailscale, choosing the password and
-scanning the two-factor QR code. It's safe to run more than once; each run skips what's already done.
+### 1. Tailscale
+
+1. Download Tailscale from [tailscale.com/download](https://tailscale.com/download) and install it.
+2. Click the Tailscale icon by the clock (click `^` if you don't see it), choose **Log in**, and sign in. Use the
+   **same account** on every device: two accounts make two separate networks that can't see each other.
+3. **Turn off key expiry.** In the [admin console](https://login.tailscale.com/admin/machines), click the `...` menu
+   next to this PC and choose **Disable key expiry**. Otherwise Tailscale makes the PC sign in again every 180
+   days, and a host nobody sits at can't.
+4. Note this PC's address starting with `100.` from the admin console: the controller connects to it.
+
+### 2. RustDesk
+
+1. Download it **only** from [github.com/rustdesk/rustdesk/releases](https://github.com/rustdesk/rustdesk/releases).
+   Under the newest release, open **Assets** and pick the file ending in `x86_64.exe`. Fake RustDesk sites hand
+   out malware, so don't use a search ad.
+2. Run it and choose **Install** (not "Run without install"). Installing adds the RustDesk **service**, which
+   lets you reach the PC even at the Windows sign-in screen.
+
+### 3. Firewall: let RustDesk answer only through Tailscale
+
+RustDesk's installer adds Windows Firewall rules that accept connections on every network adapter. These commands
+limit them to Tailscale, so a device on your home network (a guest's phone, a hacked smart TV) can't reach
+RustDesk at all. It's a second lock next to the whitelist: the firewall stops connections before RustDesk sees
+them. Do this before turning on direct IP access in step 4, so RustDesk is never reachable from every network.
+
+**Open PowerShell as administrator:** press the Windows key, type `powershell`, right-click **Windows PowerShell**
+and choose **Run as administrator**, then click **Yes**. The window title starts with "Administrator".
+
+Paste each command as one line and press **Enter**. Common mistakes:
+
+- **A missing hyphen** when copying, e.g. `SelectObject` instead of `Select-Object`. PowerShell then says the term
+  "is not recognized".
+- **A `>>` prompt** means PowerShell is waiting for the rest of a command. Press **Ctrl+C** and paste again.
+
+1. Find the Tailscale adapter's name. It's almost always `Tailscale` ("Tailscale Tunnel"):
+
+```powershell
+Get-NetAdapter | Select-Object Name, InterfaceDescription
+```
+
+2. See RustDesk's firewall rules. Their names vary: some PCs have `RustDesk Service` and `rustdesk.exe` rules,
+   others only `RustDesk Service`. A red "No MSFT_NetFirewallRule objects found" error for a missing name is
+   harmless; the rules that exist are still listed.
+
+```powershell
+Get-NetFirewallRule -DisplayName "RustDesk Service","rustdesk.exe" | Select-Object DisplayName, Direction, Action, EdgeTraversalPolicy
+```
+
+3. Only if a rule shows `DeferToUser` in the last column: switch it to `Block`. Windows won't limit such a rule to
+   one adapter. Skip this if every rule shows `Block`.
+
+```powershell
+Get-NetFirewallRule -DisplayName "RustDesk Service","rustdesk.exe" | Where-Object EdgeTraversalPolicy -eq "DeferToUser" | Set-NetFirewallRule -EdgeTraversalPolicy Block
+```
+
+4. Limit the rules that **Allow** RustDesk to Tailscale. It prints nothing when it works.
+
+```powershell
+Get-NetFirewallRule -DisplayName "RustDesk Service","rustdesk.exe" | Where-Object Action -eq "Allow" | Set-NetFirewallRule -InterfaceAlias "Tailscale"
+```
+
+5. Check: every Allow rule should show `InterfaceAlias : Tailscale`.
+
+```powershell
+Get-NetFirewallRule -DisplayName "RustDesk Service","rustdesk.exe" | Where-Object Action -eq "Allow" | Get-NetFirewallInterfaceFilter
+```
+
+6. Make sure the firewall itself is on: Domain, Private and Public should all show `True`.
+
+```powershell
+Get-NetFirewallProfile | Select-Object Name, Enabled
+```
+
+### 4. RustDesk security settings
+
+Open RustDesk, click the menu next to your ID (or the gear icon) to open **Settings**, go to **Security**, and click
+**Unlock security settings** (approve the admin prompt). Menu names may differ slightly between versions.
+
+| Where | Setting | Set it to | Why |
+|---|---|---|---|
+| Security | Password | **Use permanent password**, then **Set permanent password** | Generate a random password of 20 or more characters in your password manager, save it there, and paste it in. Never reuse it, not even on another of your computers: one leak would then open both. It lets you connect when nobody is at the host. |
+| Security | Two-factor authentication | **On** | A QR code appears. In your authenticator app, tap **+**, scan it, and name the entry after this PC. A stolen password alone is then useless. Don't photograph or share the QR code: it's the secret that makes the codes. |
+| Security | Accept sessions | **via password** | A session starts on the password and code alone. Nobody has to be at the host to click Accept. |
+| Security | Deny LAN discovery | **On** (ticked) | The PC stops announcing itself to other RustDesk apps on your home network. |
+| Security | Enable direct IP access | **On**, port **21118** | The controller connects straight to the host's Tailscale address, not through RustDesk's public servers. |
+| Security | Use IP whitelisting | **On**, add only the controller's `100.x` address | RustDesk refuses everything else with "Your ip is blocked by the peer". Never add this PC's own address, and never a whole range like `100.64.0.0/10`: that lets in every device on your Tailscale network. |
+| Network | ID server and Relay server | `127.0.0.1` in both | Stops the PC registering with RustDesk's public servers, which would be a second way in outside Tailscale. RustDesk will then say it can't reach a server; that's expected. |
+
+### 5. Never sleep while plugged in
+
+Windows **Settings → System → Power** ("Power & battery" on Windows 11): set **Sleep** to **Never** when plugged
+in. A sleeping PC can't be reached. The screen turning off is fine.
+
+Then [check the host](#check-the-host) and go to the controller to [connect](controller-windows.md#3-connect).
+
+## Script path (not yet tested on a real PC)
+
+> **Not yet run on a real Windows PC.** The script's logic is tested automatically, but until it has been run on a
+> real host, use the manual path above. See the [README's Status](../README.md#status).
+
+The script does the manual path's steps except the ones that need you: signing in to Tailscale, turning off key
+expiry, choosing the password and scanning the two-factor QR code. It's safe to run more than once: each run skips
+what's already done and keeps the controllers already on the whitelist.
 
 ### 1. Get the scripts
 
 1. Open [the repo's main page](https://github.com/stunnas/tailnet-desk), click the green **Code** button, then
    **Download ZIP**.
 2. Open your Downloads folder, right-click the ZIP and choose **Extract All**, then **Extract**.
-3. Open the extracted folder, then `scripts`, then `windows`. Keep this window open.
+3. Open the extracted `tailnet-desk-main` folder (open it twice if there's a folder with the same name inside),
+   then `scripts`, then `windows`. Keep this window open.
 
 ### 2. Open PowerShell as administrator in that folder
 
-1. Press the Windows key, type `powershell`, right-click **Windows PowerShell** and choose **Run as
-   administrator**. Click **Yes**. The window title starts with "Administrator".
+1. Open PowerShell as administrator ([how](#3-firewall-let-rustdesk-answer-only-through-tailscale)).
 2. Type `cd ` (with a space), drag the `windows` folder from File Explorer into the PowerShell window, and press
    **Enter**. The prompt now ends in `\scripts\windows>`.
 3. Windows blocks scripts downloaded from the internet by default. Allow these ones for this window only:
@@ -76,168 +180,90 @@ mark from these files, so Windows stops asking about them.
 
 What happens:
 
-1. **Tailscale** is installed (with winget, Windows' own installer). The first time, the script stops and asks you
-   to sign in: click the Tailscale icon by the clock (click `^` if you don't see it), choose **Log in**, and sign
-   in. Then run the same command again.
-2. **RustDesk** is downloaded from its official GitHub page. The script checks the file's SHA-256 fingerprint
-   against the one GitHub publishes and refuses to install a file that doesn't match.
-3. **RustDesk's settings:** RustDesk's public servers are switched off, only the permanent password is accepted,
-   and LAN discovery is off. Direct IP access stays **off** for now, because there's no controller to whitelist yet.
-4. **The firewall:** RustDesk's rules are limited to the Tailscale adapter.
+1. **Tailscale** (version 1.104.4) is installed with winget, Windows' own installer. The first time, the script stops
+   and asks you to sign in: click the Tailscale icon by the clock, choose **Log in**, and sign in. Then run the same
+   command again.
+2. **RustDesk** (version 1.5.3) is downloaded from its official GitHub page into a folder only administrators can
+   change. The script checks the file's SHA-256 fingerprint against the one stored in the script and refuses to
+   run a file that doesn't match.
+3. **The firewall:** RustDesk's Allow rules are limited to the Tailscale adapter.
+4. **RustDesk's settings:** the same as the manual table, except the password and two-factor. Direct IP access
+   stays **off** for now, because there's no controller to whitelist yet.
 5. **Sleep:** the PC no longer sleeps while plugged in.
 6. **A check** runs and prints PASS or FAIL lines, then the steps left for you.
 
-At the end it prints **this PC's Tailscale address**. Write it down: the controller connects to it.
+At the end it prints **this PC's Tailscale address**: the controller connects to it. Then do the manual path's
+[key expiry step](#1-tailscale) (step 3) and the password and two-factor rows of [step 4](#4-rustdesk-security-settings).
 
-One Tailscale setting the script can't change: in the [admin console](https://login.tailscale.com/admin/machines),
-click the `...` menu next to this PC and choose **Disable key expiry**. Otherwise Tailscale makes the PC sign in
-again every 180 days, and a host nobody sits at can't.
+### 4. Second run, with the controller's address
 
-### 4. Set the password and two-factor (by hand)
-
-Open RustDesk, click the menu next to your ID (or the gear icon) to open **Settings**, go to **Security**, and
-click **Unlock security settings** (approve the admin prompt).
-
-1. **Password:** choose **Use permanent password**, then **Set permanent password**. Generate a random password
-   of 20 or more characters in your password manager, save it there, and paste it in. Never reuse it, not even on
-   another of your computers: one leak would then open both.
-2. **Two-factor:** turn on **two-factor authentication**. A QR code appears. In your authenticator app, tap **+**,
-   scan it, and name the entry after this PC. Don't photograph or share the QR code: it's the secret that makes
-   the codes.
-
-### 5. Second run, with the controller's address
-
-Once the controller has joined Tailscale (its guide, step 1), find its `100.x` address in the
-[Tailscale admin console](https://login.tailscale.com/admin/machines). Then, in the same admin PowerShell
-window, run the script again with that address in place of the example:
+Once the controller has [joined Tailscale](controller-windows.md#1-join-tailscale), find the **controller's**
+`100.x` address in the [Tailscale admin console](https://login.tailscale.com/admin/machines). Not this PC's own
+address. Then, in the same admin PowerShell window, run the script with it in place of the example:
 
 ```powershell
-.\Install-Host.ps1 -ControllerIp 100.64.0.10
+.\Install-Host.ps1 -ControllerIp 100.64.0.11
 ```
 
 This turns on direct IP access with only that address on RustDesk's whitelist. For more than one controller,
-separate the addresses with commas: `-ControllerIp 100.64.0.10,100.64.0.11`.
+separate the addresses with commas: `-ControllerIp 100.64.0.11,100.64.0.12`. Later runs without `-ControllerIp`
+keep the whitelist as it is.
 
-Then go to the controller and follow its guide to connect and test.
-
-## Manual path
-
-The same result by hand, for when you'd rather see each step or the script fails. Skip this section if the
-script worked.
-
-### 1. Tailscale
-
-1. Download Tailscale from [tailscale.com/download](https://tailscale.com/download) and install it.
-2. Click the Tailscale icon by the clock, choose **Log in**, and sign in. Use the **same account** on every
-   device: two accounts make two separate networks that can't see each other.
-3. In the [admin console](https://login.tailscale.com/admin/machines), click the `...` menu next to this PC and
-   choose **Disable key expiry**. Otherwise Tailscale makes it sign in again every 180 days, and a host nobody
-   sits at can't.
-
-### 2. RustDesk
-
-1. Download it **only** from [github.com/rustdesk/rustdesk/releases](https://github.com/rustdesk/rustdesk/releases).
-   Under the newest release, open **Assets** and pick the file ending in `x86_64.exe`. Fake RustDesk sites hand
-   out malware, so don't use a search ad.
-2. Run it and choose **Install** (not "Run without install"). Installing adds the RustDesk **service**, which
-   lets you reach the PC even at the Windows sign-in screen.
-
-### 3. RustDesk security settings
-
-Open RustDesk, go to **Settings**, then **Security**, and click **Unlock security settings**. Menu names may
-differ slightly between versions.
-
-| Where | Setting | Set it to | Why |
-|---|---|---|---|
-| Security | Password | **Use permanent password**, then **Set permanent password** | A random 20+ character password from your password manager, used nowhere else. Lets you connect when nobody is at the host. |
-| Security | Two-factor authentication | **On**, scan the QR code with your authenticator app | A stolen password alone is useless. |
-| Security | Enable direct IP access | **On**, port **21118** | The controller connects straight to the host's Tailscale address, not through RustDesk's public servers. |
-| Security | Use IP whitelisting | **On**, add only the controller's `100.x` address | RustDesk refuses everything else with "Your ip is blocked by the peer". Never add a whole range like `100.64.0.0/10`: that lets in every device on your Tailscale network. |
-| Network | ID server and Relay server | `127.0.0.1` in both | Stops the PC registering with RustDesk's public servers, which would be a second way in outside Tailscale. RustDesk will then say it can't reach a server; that's expected. |
-
-Also set Windows **Settings → System → Power** so the PC never **sleeps** while plugged in. The screen turning
-off is fine.
-
-### 4. Firewall: let RustDesk answer only through Tailscale
-
-RustDesk's installer adds Windows Firewall rules that accept connections on every network adapter. These
-commands limit them to Tailscale, so a device on your home network (a guest's phone, a hacked smart TV) can't
-reach RustDesk at all. It's a second lock next to the whitelist: the firewall stops connections before RustDesk
-sees them.
-
-Open PowerShell as administrator (see the quick path, step 2). Paste each command as one line and press
-**Enter**. Common mistakes:
-
-- **A missing hyphen** when copying, e.g. `SelectObject` instead of `Select-Object`. PowerShell then says the term
-  "is not recognized".
-- **A `>>` prompt** means PowerShell is waiting for the rest of a command. Press **Ctrl+C** and paste again.
-
-1. Find the Tailscale adapter's name. It's almost always `Tailscale` ("Tailscale Tunnel"):
-
-```powershell
-Get-NetAdapter | Select-Object Name, InterfaceDescription
-```
-
-2. See RustDesk's firewall rules. Their names vary: some PCs have `RustDesk Service` and `rustdesk.exe` rules,
-   others only `RustDesk Service`. A red "No MSFT_NetFirewallRule objects found" error for a missing name is
-   harmless; the rules that exist are still listed.
-
-```powershell
-Get-NetFirewallRule -DisplayName "RustDesk Service","rustdesk.exe" | Select-Object DisplayName, Direction, Profile, EdgeTraversalPolicy
-```
-
-3. Only if a rule shows `DeferToUser` in the last column: switch it to `Block`. Windows won't limit such a rule to
-   one adapter. Skip this if every rule shows `Block`.
-
-```powershell
-Get-NetFirewallRule -DisplayName "RustDesk Service","rustdesk.exe" | Where-Object EdgeTraversalPolicy -eq "DeferToUser" | Set-NetFirewallRule -EdgeTraversalPolicy Block
-```
-
-4. Limit the rules to Tailscale. It prints nothing when it works.
-
-```powershell
-Get-NetFirewallRule -DisplayName "RustDesk Service","rustdesk.exe" | Set-NetFirewallRule -InterfaceAlias "Tailscale"
-```
-
-5. Check: every rule should show `InterfaceAlias : Tailscale`.
-
-```powershell
-Get-NetFirewallRule -DisplayName "RustDesk Service","rustdesk.exe" | Get-NetFirewallInterfaceFilter
-```
-
-6. Make sure the firewall itself is on: Domain, Private and Public should all show `True`.
-
-```powershell
-Get-NetFirewallProfile | Select-Object Name, Enabled
-```
+Then go to the controller to [connect](controller-windows.md#3-connect).
 
 ## Check the host
 
-Run the check script on the host, in admin PowerShell in the `scripts\windows` folder. It changes nothing and
-prints PASS or FAIL for each item. Run it again **after every RustDesk update**, which may reinstall the firewall
-rules.
+Run the check script on the host, in admin PowerShell in the `scripts\windows` folder (get it as in
+[the script path, steps 1 and 2](#1-get-the-scripts)). It changes nothing and prints PASS or FAIL for each item.
 
 ```powershell
 .\Test-Host.ps1
 ```
 
-It can't see the password or two-factor settings; check those in RustDesk. The tests that prove the firewall
-works must run from the controller: see the [controller guide](controller-windows.md#test-from-the-controller).
+**Run it again after every RustDesk update**: an update may reinstall the firewall rules without the Tailscale limit.
+
+It can't see the password or two-factor settings; check those in RustDesk. The tests that prove the firewall works
+must run from the controller: see the [controller guide](controller-windows.md#test-from-the-controller).
 
 ## When something goes wrong
 
+### Messages while running the scripts
+
 | What you see | What it means | Fix |
 |---|---|---|
-| "running scripts is disabled on this system" | Windows' default script policy. | Run the two commands in the quick path, step 2.3, in the same window. |
-| "cannot be loaded ... not digitally signed" | The files still carry the downloaded-from-the-internet mark. | Run the `Unblock-File` command in the quick path, step 2.3. |
-| "The script ... cannot be run because it contains a #requires statement for running as Administrator" | PowerShell isn't running as administrator. | Close it and open it again with **Run as administrator**. |
+| "running scripts is disabled on this system" | Windows' default script policy. | Run the two commands in [step 2.3](#2-open-powershell-as-administrator-in-that-folder) in the same window. |
+| "cannot be loaded ... not digitally signed" | The files still carry the downloaded-from-the-internet mark. | Run the `Unblock-File` command in step 2.3. |
+| "... contains a #requires statement for running as Administrator" | PowerShell isn't running as administrator. | Close it and open it again with **Run as administrator**. |
 | "winget is missing" | Older Windows without winget. | Install Tailscale from [tailscale.com/download](https://tailscale.com/download), then run the script again. |
-| "Not a Tailscale address" | The address passed to `-ControllerIp` doesn't start with `100.`. | Copy the controller's address from the Tailscale admin console. |
-| FAIL on a firewall rule after a RustDesk update | The update reinstalled the rules. | Run `.\Install-Host.ps1` again (or the manual firewall commands 3 and 4). |
-| "Your ip is blocked by the peer" on the controller | The controller's address isn't on the whitelist, or Tailscale is off on the controller. | Check the controller's `100.x` address and run the second run again with it. |
+| "Not a Tailscale address" | An address given to `-ControllerIp` doesn't start with `100.`. | Copy the controller's address from the Tailscale admin console. |
+| "-ControllerIp includes this PC's own address" | You gave the host's address instead of the controller's. | Use the controller's `100.x` address. |
+| "RustDesk didn't take the setting ..." | RustDesk refused a setting, usually because its service isn't running. | Restart the PC and run the script again. |
+
+### FAIL lines from Test-Host.ps1
+
+| FAIL line | Fix |
+|---|---|
+| Tailscale is signed in | Click the Tailscale icon by the clock and choose **Log in**. |
+| Network adapter 'Tailscale' exists | Reinstall Tailscale. If `Get-NetAdapter` shows it under another name, use that name in the manual firewall commands. |
+| RustDesk is installed / RustDesk service is running | Reinstall RustDesk ([manual step 2](#2-rustdesk)), choosing **Install**. A stopped service: restart the PC. |
+| Given controller address ... / Whitelist entry ... is one Tailscale address | Replace it with the controller's single `100.x` address, no ranges. |
+| Whitelist is not empty while direct IP access is on | Add the controller's address to the whitelist, or turn off direct IP access. |
+| RustDesk setting ... | That setting differs from [step 4's table](#4-rustdesk-security-settings). Fix it in RustDesk, or run `Install-Host.ps1` again. |
+| RustDesk listens on TCP 21118 | Direct IP access is on but nothing listens: restart the PC. |
+| Windows Firewall is on for the ... profile | Turn Windows Firewall back on for that profile (Windows Security → Firewall & network protection). |
+| RustDesk firewall rules exist | Reinstall RustDesk; its installer creates them. |
+| Rule '...' only on Tailscale | Usually after a RustDesk update. Run [manual firewall commands 3 and 4](#3-firewall-let-rustdesk-answer-only-through-tailscale) again, or `Install-Host.ps1`. |
+| Port rule: ... | A rule opens port 21118 for every network. Find it in Windows Defender Firewall → Advanced settings → Inbound Rules, and delete it or limit it to Tailscale. |
+
+### Other problems
+
+| What you see | What it means | Fix |
+|---|---|---|
+| "Your ip is blocked by the peer" on the controller | The controller's address isn't on the whitelist, or Tailscale is off on the controller. | Check the controller's `100.x` address and add it (manual step 4, or the script's second run). |
 | Lost the phone with the authenticator app | You can't pass two-factor. | Sit at the host, turn two-factor off and on in RustDesk's Security settings, and scan the new QR code. |
 
-**Undo the firewall step** (admin PowerShell, in `scripts\windows`):
+**Undo the firewall step** (admin PowerShell, in `scripts\windows`). It puts RustDesk's Allow rules back on every
+network adapter; edge traversal stays `Block`.
 
 ```powershell
 .\Undo-HostFirewall.ps1

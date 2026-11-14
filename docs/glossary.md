@@ -18,9 +18,9 @@
 | **Two-factor (2FA)** | A second proof besides the password: a 6-digit code from an authenticator app on your phone, which changes every 30 seconds. |
 | **Authenticator app** | A phone app that makes two-factor codes, such as Microsoft Authenticator or Google Authenticator. You add a service by scanning its QR code once. |
 | **Permanent password** | A RustDesk password that stays the same, so you can connect when nobody is at the host. RustDesk's default is a one-time password that changes. |
-| **ID server / relay server** | RustDesk's public servers, used when you connect by RustDesk's 9-digit ID. These guides turn them off and connect by Tailscale address instead. |
+| **ID server / relay server** | RustDesk's public servers, used when you connect by RustDesk's 9- or 10-digit ID. These guides turn them off and connect by Tailscale address instead. |
 | **`127.0.0.1`** | A special address that always means "this same computer". Pointing a setting at it is a way of saying "nowhere else". |
 | **Service** | A program that runs in the background, even before anyone signs in. RustDesk's service is what lets you see the sign-in screen remotely. |
 | **PowerShell** | Windows' command window. Run it **as administrator** when a step changes system settings like the firewall. |
 | **Script** | A file of commands that runs them for you in order. `.ps1` files are PowerShell scripts. |
-| **SHA-256 / checksum** | A fingerprint of a file. If the fingerprint of what you downloaded matches the one the publisher posted, the file wasn't changed on the way. |
+| **SHA-256 / checksum** | A fingerprint of a file. The scripts store the fingerprint of the pinned RustDesk installer; if a download's fingerprint differs, it isn't that file, and the script refuses to run it. |
