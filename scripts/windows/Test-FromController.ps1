@@ -9,10 +9,10 @@ Firewall doesn't filter a PC's connections to its own addresses, so the tests wo
 For the home network test, the controller must be on the same home network as the host.
 
 .PARAMETER HostTailscaleIp
-The host's Tailscale address (100.x.y.z), from the Tailscale admin console or the end of Install-Host.ps1.
+The HOST's Tailscale address (100.x.y.z), from the Tailscale admin console or the end of Install-Host.ps1.
 
 .PARAMETER HostHomeIp
-The host's home network address, from running ipconfig on the host ("IPv4 Address", often 192.168.x.x).
+The HOST's home network address, from running ipconfig on the host ("IPv4 Address", often 192.168.x.x).
 Leave it out to skip the home network test, for example when you're away from home.
 
 .EXAMPLE
@@ -26,23 +26,28 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'TailnetDesk.psm1') -Force
+$port = (Get-TailnetDeskSetting).DirectPort
 
 if (-not (Test-TailscaleIPv4 -Address $HostTailscaleIp)) {
     throw "Not a Tailscale address: '$HostTailscaleIp'. It should start with 100."
 }
+$myIp = Get-TailscaleIPv4
+if ($myIp -and $myIp -eq $HostTailscaleIp) {
+    throw "That's this PC's own address. Run this on the controller, with the host's address."
+}
 
 function Test-Port([string]$Address) {
     # Test-NetConnection prints a warning when the port is closed; that's an expected result here.
-    $r = Test-NetConnection -ComputerName $Address -Port 21118 -WarningAction SilentlyContinue
+    $r = Test-NetConnection -ComputerName $Address -Port $port -WarningAction SilentlyContinue
     return [bool]$r.TcpTestSucceeded
 }
 
 $findings = @()
-$findings += [pscustomobject]@{ Check = 'This PC is signed in to Tailscale'; Pass = [bool](Get-TailscaleIPv4); Detail = 'no Tailscale address' }
-$findings += Get-PortTestVerdict -Label "Host's Tailscale address answers on 21118" `
+$findings += [pscustomobject]@{ Check = 'This PC is signed in to Tailscale'; Pass = [bool]$myIp; Detail = 'no Tailscale address' }
+$findings += Get-PortTestVerdict -Label "Host's Tailscale address answers on $port" `
     -Reachable (Test-Port $HostTailscaleIp) -ShouldBeReachable $true
 if ($HostHomeIp) {
-    $findings += Get-PortTestVerdict -Label "Host's home address does NOT answer on 21118" `
+    $findings += Get-PortTestVerdict -Label "Host's home address does NOT answer on $port" `
         -Reachable (Test-Port $HostHomeIp) -ShouldBeReachable $false
 }
 
