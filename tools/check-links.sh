@@ -59,6 +59,9 @@ for f in "${files[@]}"; do
       dest="$f"
     else
       dest="$dir/$path"
+      if [ -L "$dest" ]; then
+        echo "$f:$line: link points at a symlink, which could lead outside the repository: $target"; status=1; continue
+      fi
       if [ ! -e "$dest" ]; then
         echo "$f:$line: broken link to $target"; status=1; continue
       fi

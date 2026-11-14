@@ -4,8 +4,10 @@
 setup() {
   CHECK="$BATS_TEST_DIRNAME/../../tools/check-links.sh"
   TMP="$(mktemp -d)"
-  git -C "$TMP" init -q
-  cd "$TMP"
+  mkdir -p "$TMP/repo"
+  printf '# Outside\n' > "$TMP/outside.md"
+  git -C "$TMP/repo" init -q
+  cd "$TMP/repo"
   mkdir -p docs/images
   touch docs/images/shot.png
   printf '# Other\n\n## Step 1: Join Tailscale\n\n## The controller'"'"'s address\n' > docs/other.md
@@ -47,7 +49,7 @@ teardown() {
 }
 
 @test "fails a link that leaves the repository" {
-  printf '%s\n' '[x](../../../../../../../../etc/hosts)' > docs/guide.md
+  printf '%s\n' '[x](../../outside.md)' > docs/guide.md
   run "$CHECK" docs/guide.md
   [ "$status" -eq 1 ]
   [[ "$output" == *"outside the repository"* ]]
@@ -63,4 +65,22 @@ teardown() {
   git add -A
   run "$CHECK"
   [ "$status" -eq 1 ]
+}
+
+@test "fails a link to a symlink, which could lead outside the repository" {
+  ln -s ../../outside.md docs/sneaky.md
+  printf '%s\n' '[x](sneaky.md#outside)' > docs/guide.md
+  run "$CHECK" docs/guide.md
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"symlink"* ]]
+}
+
+@test "without arguments, skips tests/fixtures/ and tracked symlinks" {
+  mkdir -p tests/fixtures
+  printf '%s\n' '[gone](gone.md)' > tests/fixtures/broken.md
+  printf '%s\n' '[gone](gone.md)' > "$TMP/bad.md"
+  ln -s ../bad.md linked.md
+  git add -A
+  run "$CHECK"
+  [ "$status" -eq 0 ]
 }

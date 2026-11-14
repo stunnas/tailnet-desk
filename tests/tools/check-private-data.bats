@@ -120,3 +120,12 @@ check_text() {
   run "$CHECK"
   [ "$status" -eq 1 ]
 }
+
+@test "without arguments, skips tracked symlinks" {
+  printf 'host 100.99.88.77\n' > "$BATS_TEST_TMPDIR/outside.md"
+  ln -s "$BATS_TEST_TMPDIR/outside.md" linked.md
+  printf 'fine\n' > ok.md
+  git add -A
+  run "$CHECK"
+  [ "$status" -eq 0 ]
+}
