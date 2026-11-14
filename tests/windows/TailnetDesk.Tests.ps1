@@ -16,7 +16,9 @@ Describe 'Test-TailscaleIPv4' {
         Test-TailscaleIPv4 -Address $_ | Should -BeFalse
     }
     It 'rejects non-ASCII digits, which .NET counts as digits' {
-        Test-TailscaleIPv4 -Address "1$([char]0x0660)0.64.0.10" | Should -BeFalse # check-private-data: allow
+        # In the last octet, so a \d pattern would let it through ([int] reads it as a digit), not drop it.
+        Test-TailscaleIPv4 -Address "100.64.0.1$([char]0x0660)" -ErrorVariable e | Should -BeFalse # check-private-data: allow
+        $e | Should -BeNullOrEmpty
     }
 }
 
@@ -120,6 +122,10 @@ Describe 'Get-HostSettingFinding' {
         $f = Get-HostSettingFinding -ControllerIp '192.168.0.10' -Current (New-Current @{ 'direct-server' = ''; whitelist = '' })
         @($f | Where-Object { -not $_.Pass }).Check | Should -Contain "Given controller address '192.168.0.10' is one Tailscale address"
     }
+    It "fails a whitelist that includes this PC's own address" {
+        $f = Get-HostSettingFinding -OwnIp '100.64.0.10' -Current (New-Current @{ 'direct-server' = 'Y'; whitelist = '100.64.0.10,100.64.0.11' })
+        @($f | Where-Object { -not $_.Pass }).Check | Should -Contain "Whitelist doesn't include this PC's own address"
+    }
     It 'fails when the whitelist differs from the given controllers' {
         $f = Get-HostSettingFinding -ControllerIp '100.64.0.12' -Current (New-Current @{ 'direct-server' = 'Y'; whitelist = '100.64.0.11' })
         @($f | Where-Object { -not $_.Pass }).Check | Should -Contain 'RustDesk setting whitelist'
@@ -178,6 +184,8 @@ Describe 'Install-RustDesk' {
 
         { Install-RustDesk } | Should -Throw "*doesn't match the pinned one*"
         Should -Invoke -ModuleName TailnetDesk Start-Process -Times 0 -Exactly
+        Should -Invoke -ModuleName TailnetDesk Open-LockedFile -Times 1 -Exactly
+        Should -Invoke -ModuleName TailnetDesk Get-FileHash -Times 1 -Exactly -ParameterFilter { $null -ne $InputStream }
         Should -Invoke -ModuleName TailnetDesk Remove-Item -Times 1 -Exactly -ParameterFilter { $LiteralPath -eq 'private-folder' }
     }
 }

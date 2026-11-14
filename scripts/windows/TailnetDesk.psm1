@@ -3,7 +3,10 @@
 # files without a byte order mark as the system code page, so other characters break.
 #
 # Sections: settings, checks (no system access, tested in tests/windows on Linux and Windows), system reads,
-# and system changes. Each system change says what it changes. System functions stop on the first error.
+# and system changes. Each system change says what it changes. The caller's $ErrorActionPreference doesn't reach a
+# module, so system functions pass -ErrorAction Stop to every cmdlet whose failure matters.
+# These scripts run as administrator but trust the signed-in user's account: they find system folders through the
+# registry rather than environment variables, which the user's own programs could change.
 
 Set-StrictMode -Version 3.0
 
@@ -15,11 +18,11 @@ $script:Setting = [pscustomobject]@{
     AdapterName     = 'Tailscale'           # Tailscale's network adapter on Windows
     ServiceName     = 'RustDesk'
     RuleNames       = @('RustDesk Service', 'rustdesk.exe')   # names RustDesk's installer gives its firewall rules
-    RustDeskVersion = '1.5.3'
-    RustDeskAsset   = 'rustdesk-1.5.3-x86_64.exe'
+    RustDeskVersion = '1.5.3'                # bump together with RustDeskSha256
     RustDeskSha256  = '523ba0efbf62a21739961b62c7daaffb44d3da86139c546b364fd4e1333ed249'
     TailscaleWinget = '1.104.4'             # winget package Tailscale.Tailscale; Tailscale updates itself afterwards
 }
+$script:Setting | Add-Member -NotePropertyName RustDeskAsset -NotePropertyValue "rustdesk-$($script:Setting.RustDeskVersion)-x86_64.exe"
 
 function Get-TailnetDeskSetting {
     <# .SYNOPSIS The shared settings: port, adapter and service names, and pinned versions. #>
@@ -198,7 +201,11 @@ function Get-HostSettingFinding {
     them, the current whitelist is judged on its own. Direct IP access on with a bad or empty whitelist fails.
     #>
     [CmdletBinding()]
-    param([AllowEmptyCollection()][string[]]$ControllerIp = @(), [Parameter(Mandatory)][System.Collections.IDictionary]$Current)
+    param(
+        [AllowEmptyCollection()][string[]]$ControllerIp = @(),
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Current,
+        [AllowEmptyString()][string]$OwnIp = ''
+    )
 
     $given = @(ConvertTo-AddressList -Address $ControllerIp)
     $whitelist = if ($Current.Contains('whitelist')) { "$($Current['whitelist'])" } else { '' }
@@ -214,6 +221,13 @@ function Get-HostSettingFinding {
             Detail = 'an empty whitelist lets every Tailscale device try a password'
         }
         $results += Get-AddressFinding -Address $listed -What 'Whitelist entry'
+        if ($OwnIp -and ($listed -contains $OwnIp)) {
+            $results += [pscustomobject]@{
+                Check  = "Whitelist doesn't include this PC's own address"
+                Pass   = $false
+                Detail = "remove ${OwnIp}; whitelist only the controllers"
+            }
+        }
     }
     $validGiven = @($given | Where-Object { Test-TailscaleIPv4 -Address $_ })
     # The wanted settings come from the given controllers, or from the valid entries already whitelisted.
@@ -336,11 +350,24 @@ function Write-Finding {
 # --- System reads --------------------------------------------------------------------------------------------
 
 function Get-ProgramFilesPath {
-    <# .SYNOPSIS The 64-bit Program Files folder, even from 32-bit PowerShell. #>
+    <#
+    .SYNOPSIS
+    The 64-bit Program Files folder, read from the machine registry (not from environment variables, which the user
+    can change), and correct from 32-bit PowerShell too.
+    #>
     [CmdletBinding()]
     param()
-    if ($env:ProgramW6432) { return $env:ProgramW6432 }
-    return $env:ProgramFiles
+    $key = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion' -ErrorAction Stop
+    if ($key.PSObject.Properties.Name -contains 'ProgramW6432Dir' -and $key.ProgramW6432Dir) { return $key.ProgramW6432Dir }
+    return $key.ProgramFilesDir
+}
+
+function Get-ProgramDataPath {
+    <# .SYNOPSIS The ProgramData folder, read from the machine registry rather than an environment variable. #>
+    [CmdletBinding()]
+    param()
+    $key = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' -ErrorAction Stop
+    return $key.ProgramData
 }
 
 function Get-RustDeskExe {
@@ -386,17 +413,28 @@ function Get-RustDeskOption {
     return $values
 }
 
+function Get-StoreArg {
+    <# .SYNOPSIS Splat for the firewall cmdlets: the given policy store, or none (the local, editable store). #>
+    [CmdletBinding()]
+    param([string]$PolicyStore = '')
+    $a = @{}
+    if ($PolicyStore) { $a['PolicyStore'] = $PolicyStore }
+    return $a
+}
+
 function Get-RustDeskFirewallRule {
     <#
     .SYNOPSIS
     Enabled inbound and outbound Allow rules for RustDesk: by the names its installer uses, plus any rule for its
-    program. Block rules are left alone: limiting one to an adapter would only weaken it.
+    program. Block rules are left alone: limiting one to an adapter would only weaken it. -PolicyStore ActiveStore
+    reads what Windows actually applies, Group Policy included; the default is the local store the setup changes.
     #>
     [CmdletBinding()]
-    param()
+    param([string]$PolicyStore = '')
+    $store = Get-StoreArg -PolicyStore $PolicyStore
     $rules = @()
-    $rules += @(Get-NetFirewallRule -DisplayName $script:Setting.RuleNames -ErrorAction SilentlyContinue)
-    $rules += @(Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue |
+    $rules += @(Get-NetFirewallRule -DisplayName $script:Setting.RuleNames @store -ErrorAction SilentlyContinue)
+    $rules += @(Get-NetFirewallApplicationFilter @store -ErrorAction SilentlyContinue |
         Where-Object { $_.Program -like '*\rustdesk.exe' } |
         Get-NetFirewallRule -ErrorAction SilentlyContinue)
     return @($rules | Where-Object { $_ -and "$($_.Action)" -eq 'Allow' -and "$($_.Enabled)" -eq 'True' } |
@@ -412,8 +450,9 @@ function Get-PortAllowRule {
     that program in, and RustDesk's own rules are checked separately.
     #>
     [CmdletBinding()]
-    param()
-    return @(Get-NetFirewallPortFilter -ErrorAction SilentlyContinue |
+    param([string]$PolicyStore = '')
+    $store = Get-StoreArg -PolicyStore $PolicyStore
+    return @(Get-NetFirewallPortFilter @store -ErrorAction SilentlyContinue |
         Where-Object { "$($_.Protocol)" -in @('TCP', 'Any') -and (@($_.LocalPort) | Where-Object { Test-PortSpecCover -Spec "$_" }) } |
         Get-NetFirewallRule -ErrorAction SilentlyContinue |
         Where-Object { "$($_.Direction)" -eq 'Inbound' -and "$($_.Action)" -eq 'Allow' -and "$($_.Enabled)" -eq 'True' } |
@@ -462,7 +501,7 @@ function New-PrivateFolder {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    $root = Join-Path $env:ProgramData 'tailnet-desk'
+    $root = Join-Path (Get-ProgramDataPath) 'tailnet-desk'
     $path = Join-Path $root ([guid]::NewGuid().ToString('N'))
     if (-not $PSCmdlet.ShouldProcess($path, 'Create a folder only administrators can write to')) { return $null }
 
@@ -470,7 +509,7 @@ function New-PrivateFolder {
     foreach ($dir in @($root, $path)) {
         if (Test-Path -LiteralPath $dir) {
             # Someone else could have made it first to keep control of it. Only accept one owned by an administrator.
-            $owner = (Get-Acl -LiteralPath $dir).GetOwner([Security.Principal.SecurityIdentifier]).Value
+            $owner = (Get-Acl -LiteralPath $dir -ErrorAction Stop).GetOwner([Security.Principal.SecurityIdentifier]).Value
             if ($trusted -notcontains $owner) { throw "$dir already exists and isn't owned by Administrators. Delete it and run again." }
         } else {
             New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
@@ -480,7 +519,7 @@ function New-PrivateFolder {
         if ($LASTEXITCODE -ne 0) { throw "Couldn't restrict the permissions of $dir (icacls exit code $LASTEXITCODE)." }
     }
     # Anything planted before the permissions were tightened would still belong to its maker.
-    if (@(Get-ChildItem -LiteralPath $path -Force).Count -gt 0) { throw "$path wasn't empty after it was created. Stopping." }
+    if (@(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop).Count -gt 0) { throw "$path wasn't empty after it was created. Stopping." }
     return $path
 }
 
