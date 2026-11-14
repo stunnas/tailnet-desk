@@ -54,14 +54,17 @@ foreach ($p in @(Get-NetFirewallProfile)) {
         Pass   = ("$($p.Enabled)" -eq 'True')
         Detail = "Enabled: $($p.Enabled)"
     }
+    # With Allow as the default, connections nobody ruled on get in, and the Tailscale limit means nothing.
+    $findings += [pscustomobject]@{
+        Check  = "Windows Firewall blocks unasked-for connections on the $($p.Name) profile"
+        Pass   = ("$($p.DefaultInboundAction)" -in @('Block', 'NotConfigured'))
+        Detail = "DefaultInboundAction: $($p.DefaultInboundAction)"
+    }
 }
 $findings += Get-FirewallFinding -Rule @(Get-FirewallRuleState -Rule (Get-RustDeskFirewallRule)) -AdapterName $setting.AdapterName
-# Rules that open the port itself (not RustDesk's program) would get around the adapter limit.
+# Rules that open the port itself (exactly, in a range, or Any) would get around the adapter limit.
 $portRules = @(Get-FirewallRuleState -Rule (Get-PortAllowRule))
-foreach ($f in @(Get-FirewallFinding -Rule $portRules -AdapterName $setting.AdapterName -Label 'x' | Select-Object -Skip 1)) {
-    $f.Check = "Port rule: $($f.Check)"
-    $findings += $f
-}
+$findings += Get-FirewallFinding -Rule $portRules -AdapterName $setting.AdapterName -Prefix 'Port rule: ' -SkipCountCheck
 
 Write-Host ''
 Write-Host 'Host checks' -ForegroundColor Cyan

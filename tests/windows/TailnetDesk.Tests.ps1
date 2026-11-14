@@ -15,6 +15,9 @@ Describe 'Test-TailscaleIPv4' {
         '100.64.0.0/10', ' 100.64.0.10', '100.64.0.10 ', "100.64.0.10`n", '100.064.0.10', '', 'abc', '0.0.0.0') { # check-private-data: allow
         Test-TailscaleIPv4 -Address $_ | Should -BeFalse
     }
+    It 'rejects non-ASCII digits, which .NET counts as digits' {
+        Test-TailscaleIPv4 -Address "1$([char]0x0660)0.64.0.10" | Should -BeFalse # check-private-data: allow
+    }
 }
 
 Describe 'ConvertTo-AddressList' {
@@ -40,6 +43,16 @@ Describe 'Resolve-ControllerIp' {
     }
     It 'refuses a given non-Tailscale address: <_>' -ForEach @('192.168.0.10', '100.64.0.0/10', '0.0.0.0') {
         { Resolve-ControllerIp -ControllerIp @($_) } | Should -Throw '*Not a Tailscale address*'
+    }
+    It "refuses this PC's own address, alone or in a comma-separated list" {
+        { Resolve-ControllerIp -ControllerIp '100.64.0.10' -OwnIp '100.64.0.10' } | Should -Throw "*this PC's own address*"
+        { Resolve-ControllerIp -ControllerIp '100.64.0.11,100.64.0.10' -OwnIp '100.64.0.10' } | Should -Throw "*this PC's own address*"
+    }
+    It "accepts other addresses when this PC's own is known" {
+        (Resolve-ControllerIp -ControllerIp '100.64.0.11' -OwnIp '100.64.0.10') -join ',' | Should -Be '100.64.0.11'
+    }
+    It "drops this PC's own address from the kept whitelist" {
+        (Resolve-ControllerIp -CurrentWhitelist '100.64.0.10,100.64.0.11' -OwnIp '100.64.0.10') -join ',' | Should -Be '100.64.0.11'
     }
 }
 
@@ -99,9 +112,9 @@ Describe 'Get-HostSettingFinding' {
         $f = Get-HostSettingFinding -Current (New-Current @{ 'direct-server' = 'Y'; whitelist = '' })
         @($f | Where-Object { -not $_.Pass }).Check | Should -Contain 'Whitelist is not empty while direct IP access is on'
     }
-    It 'fails a range in the whitelist' {
+    It 'fails a range in the whitelist, naming the entry' {
         $f = Get-HostSettingFinding -Current (New-Current @{ 'direct-server' = 'Y'; whitelist = '100.64.0.11,100.64.0.0/10' })
-        @($f | Where-Object { -not $_.Pass }).Count | Should -BeGreaterThan 0
+        @($f | Where-Object { -not $_.Pass }).Check | Should -Contain "Whitelist entry '100.64.0.0/10' is one Tailscale address"
     }
     It 'reports an invalid given controller instead of ignoring it' {
         $f = Get-HostSettingFinding -ControllerIp '192.168.0.10' -Current (New-Current @{ 'direct-server' = ''; whitelist = '' })
@@ -149,9 +162,6 @@ Describe 'Select-ReleaseAsset' {
 }
 
 Describe 'Install-RustDesk' {
-    BeforeAll {
-        if (-not $env:ProgramData) { $env:ProgramData = [IO.Path]::GetTempPath() }
-    }
     It 'installs nothing and cleans up when the download does not match the pinned SHA-256' {
         Mock -ModuleName TailnetDesk Get-RustDeskExe { $null }
         Mock -ModuleName TailnetDesk Invoke-RestMethod {
@@ -161,6 +171,7 @@ Describe 'Install-RustDesk' {
         }
         Mock -ModuleName TailnetDesk New-PrivateFolder { 'private-folder' }
         Mock -ModuleName TailnetDesk Invoke-WebRequest { }
+        Mock -ModuleName TailnetDesk Open-LockedFile { New-Object IO.MemoryStream }
         Mock -ModuleName TailnetDesk Get-FileHash { [pscustomobject]@{ Hash = 'C' * 64 } }
         Mock -ModuleName TailnetDesk Start-Process { throw 'must not run' }
         Mock -ModuleName TailnetDesk Remove-Item { }
@@ -190,6 +201,27 @@ Describe 'Get-FirewallFinding' {
     }
     It 'fails when there are no rules' {
         (Get-FirewallFinding -Rule @())[0].Pass | Should -BeFalse
+    }
+}
+
+Describe 'Test-PortSpecCover' {
+    It 'covers <_>' -ForEach @('Any', '21118', ' 21118 ', '21000-22000', '21118-21118') {
+        Test-PortSpecCover -Spec $_ -Port 21118 | Should -BeTrue
+    }
+    It 'does not cover <_>' -ForEach @('21119', '80', '21119-22000', '1-21117', '', 'RPC') {
+        Test-PortSpecCover -Spec $_ -Port 21118 | Should -BeFalse
+    }
+}
+
+Describe 'Get-FirewallFinding options' {
+    It 'leaves out the "rules exist" result and prefixes each check when asked' {
+        $f = @(Get-FirewallFinding -Rule @([pscustomobject]@{ DisplayName = 'Open 21118'; Direction = 'Inbound'; InterfaceAlias = 'Any' }) -Prefix 'Port rule: ' -SkipCountCheck)
+        $f.Count | Should -Be 1
+        $f[0].Check | Should -BeLike 'Port rule: *'
+        $f[0].Pass | Should -BeFalse
+    }
+    It 'returns nothing for no rules when the count check is skipped' {
+        @(Get-FirewallFinding -Rule @() -SkipCountCheck).Count | Should -Be 0
     }
 }
 
@@ -223,8 +255,9 @@ Describe 'Script files' {
     BeforeDiscovery {
         $script:files = @(Get-ChildItem -Path (Join-Path $PSScriptRoot '../../scripts/windows') -File | ForEach-Object { $_.FullName })
     }
-    It 'include the module (so the ASCII test below never runs on nothing)' {
-        Join-Path $PSScriptRoot '../../scripts/windows/TailnetDesk.psm1' | Should -Exist
+    It 'include the module (so the ASCII test below never runs on nothing)' -ForEach @(@{ Files = $script:files }) {
+        $Files.Count | Should -BeGreaterThan 0
+        ($Files | Split-Path -Leaf) | Should -Contain 'TailnetDesk.psm1'
     }
     It 'are ASCII only, because Windows PowerShell 5.1 misreads other characters: <_>' -ForEach $script:files {
         $bytes = [System.IO.File]::ReadAllBytes($_)

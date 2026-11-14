@@ -89,12 +89,17 @@ function Get-AddressFinding {
 function Resolve-ControllerIp {
     <#
     .SYNOPSIS
-    Which controllers to whitelist: the ones given, or, when none are given, the valid ones already in RustDesk's
-    whitelist (so a re-run keeps a working setup). Throws on an invalid given address.
+    Which controllers to whitelist: the ones given, or, when none are given, the single Tailscale addresses already
+    in RustDesk's whitelist (so a re-run keeps a working setup). Never this PC's own address (-OwnIp). Throws on an
+    invalid given address or on this PC's own.
     #>
     [CmdletBinding()]
     [OutputType([string[]])]
-    param([AllowEmptyCollection()][string[]]$ControllerIp = @(), [AllowEmptyString()][string]$CurrentWhitelist = '')
+    param(
+        [AllowEmptyCollection()][string[]]$ControllerIp = @(),
+        [AllowEmptyString()][string]$CurrentWhitelist = '',
+        [AllowEmptyString()][string]$OwnIp = ''
+    )
 
     $given = @(ConvertTo-AddressList -Address $ControllerIp)
     if ($given.Count -gt 0) {
@@ -102,10 +107,15 @@ function Resolve-ControllerIp {
             if (-not (Test-TailscaleIPv4 -Address $ip)) {
                 throw "Not a Tailscale address: '$ip'. Tailscale addresses start with 100. (100.64.0.0 to 100.127.255.255)."
             }
+            if ($OwnIp -and $ip -eq $OwnIp) {
+                throw "'$ip' is this PC's own address. Use the controller's address instead."
+            }
         }
         return $given
     }
-    return @(ConvertTo-AddressList -Address $CurrentWhitelist | Where-Object { Test-TailscaleIPv4 -Address $_ })
+    # Keep only single Tailscale addresses that aren't this PC: ranges and home addresses are dropped.
+    return @(ConvertTo-AddressList -Address $CurrentWhitelist |
+            Where-Object { (Test-TailscaleIPv4 -Address $_) -and $_ -ne $OwnIp })
 }
 
 function Get-HostOption {
@@ -240,21 +250,43 @@ function Select-ReleaseAsset {
     return [pscustomobject]@{ Name = $asset.name; Url = $asset.browser_download_url; Sha256 = $Sha256.ToLowerInvariant() }
 }
 
+function Test-PortSpecCover {
+    <#
+    .SYNOPSIS
+    True when a firewall rule's LocalPort entry covers the port: 'Any', the port itself, or a range like 21000-22000.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([AllowEmptyString()][string]$Spec, [int]$Port = $script:Setting.DirectPort)
+
+    $t = $Spec.Trim()
+    if ($t -eq 'Any' -or $t -eq "$Port") { return $true }
+    if ($t -match '^([0-9]{1,5})-([0-9]{1,5})\z') { return ([int]$Matches[1] -le $Port -and $Port -le [int]$Matches[2]) }
+    return $false
+}
+
 function Get-FirewallFinding {
     <#
     .SYNOPSIS
     Checks firewall rules that let RustDesk in. Each rule needs DisplayName, Direction and InterfaceAlias (a string or
-    a list). Returns a "rules found" result plus one per rule.
+    a list). Returns a "rules found" result (unless -SkipCountCheck) plus one per rule.
     #>
     [CmdletBinding()]
-    param([object[]]$Rule = @(), [string]$AdapterName = $script:Setting.AdapterName, [string]$Label = 'RustDesk firewall rules exist')
+    param(
+        [object[]]$Rule = @(),
+        [string]$AdapterName = $script:Setting.AdapterName,
+        [string]$Prefix = '',
+        [switch]$SkipCountCheck
+    )
 
     $results = @()
-    $results += [pscustomobject]@{ Check = $Label; Pass = (@($Rule).Count -gt 0); Detail = "$(@($Rule).Count) found" }
+    if (-not $SkipCountCheck) {
+        $results += [pscustomobject]@{ Check = 'RustDesk firewall rules exist'; Pass = (@($Rule).Count -gt 0); Detail = "$(@($Rule).Count) found" }
+    }
     foreach ($r in @($Rule)) {
         $aliases = @($r.InterfaceAlias)
         $results += [pscustomobject]@{
-            Check  = "Rule '$($r.DisplayName)' ($($r.Direction)) only on $AdapterName"
+            Check  = "$($Prefix)Rule '$($r.DisplayName)' ($($r.Direction)) only on $AdapterName"
             Pass   = ($aliases.Count -eq 1 -and "$($aliases[0])" -eq $AdapterName)
             Detail = "InterfaceAlias: $($aliases -join ', ')"
         }
@@ -372,14 +404,20 @@ function Get-RustDeskFirewallRule {
 }
 
 function Get-PortAllowRule {
-    <# .SYNOPSIS Enabled inbound Allow rules for the direct port that name a port rather than a program. #>
+    <#
+    .SYNOPSIS
+    Enabled inbound Allow rules that let any program in on the direct port: no program named, and a port filter that
+    covers it (exactly, as a range, or Any) for TCP or any protocol. Such a rule would get around the adapter limit
+    unless it is limited to Tailscale too. Rules for one named program (a browser, a game) are left out: they only let
+    that program in, and RustDesk's own rules are checked separately.
+    #>
     [CmdletBinding()]
     param()
-    $port = "$($script:Setting.DirectPort)"
-    return @(Get-NetFirewallPortFilter -Protocol TCP -ErrorAction SilentlyContinue |
-        Where-Object { @($_.LocalPort) -contains $port } |
+    return @(Get-NetFirewallPortFilter -ErrorAction SilentlyContinue |
+        Where-Object { "$($_.Protocol)" -in @('TCP', 'Any') -and (@($_.LocalPort) | Where-Object { Test-PortSpecCover -Spec "$_" }) } |
         Get-NetFirewallRule -ErrorAction SilentlyContinue |
         Where-Object { "$($_.Direction)" -eq 'Inbound' -and "$($_.Action)" -eq 'Allow' -and "$($_.Enabled)" -eq 'True' } |
+        Where-Object { "$(($_ | Get-NetFirewallApplicationFilter).Program)" -eq 'Any' } |
         Sort-Object -Property Name -Unique)
 }
 
@@ -403,6 +441,8 @@ function Install-Tailscale {
     [CmdletBinding(SupportsShouldProcess)]
     param()
     if (Get-TailscaleExe) { Write-Host 'Tailscale is already installed.'; return }
+    # winget can only be found through PATH (Windows installs it as a per-user app alias). Unlike tailscale.exe, there's
+    # no fixed path to check; winget itself verifies the installer's hash against its manifest.
     if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
         throw 'winget is missing. Install Tailscale from https://tailscale.com/download, then run this script again.'
     }
@@ -424,23 +464,43 @@ function New-PrivateFolder {
     param()
     $root = Join-Path $env:ProgramData 'tailnet-desk'
     $path = Join-Path $root ([guid]::NewGuid().ToString('N'))
-    if ($PSCmdlet.ShouldProcess($path, 'Create a folder only administrators can write to')) {
-        New-Item -ItemType Directory -Path $path -Force -ErrorAction Stop | Out-Null
-        # Remove inherited permissions; grant full control to Administrators (S-1-5-32-544) and SYSTEM (S-1-5-18) only.
-        & icacls.exe $path /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
-            throw "Couldn't restrict the download folder's permissions (icacls exit code $LASTEXITCODE)."
+    if (-not $PSCmdlet.ShouldProcess($path, 'Create a folder only administrators can write to')) { return $null }
+
+    $trusted = @('S-1-5-32-544', 'S-1-5-18')   # Administrators, SYSTEM
+    foreach ($dir in @($root, $path)) {
+        if (Test-Path -LiteralPath $dir) {
+            # Someone else could have made it first to keep control of it. Only accept one owned by an administrator.
+            $owner = (Get-Acl -LiteralPath $dir).GetOwner([Security.Principal.SecurityIdentifier]).Value
+            if ($trusted -notcontains $owner) { throw "$dir already exists and isn't owned by Administrators. Delete it and run again." }
+        } else {
+            New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
         }
+        # Remove inherited permissions; grant full control to Administrators and SYSTEM only.
+        & icacls.exe $dir /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Couldn't restrict the permissions of $dir (icacls exit code $LASTEXITCODE)." }
     }
+    # Anything planted before the permissions were tightened would still belong to its maker.
+    if (@(Get-ChildItem -LiteralPath $path -Force).Count -gt 0) { throw "$path wasn't empty after it was created. Stopping." }
     return $path
+}
+
+function Open-LockedFile {
+    <#
+    .SYNOPSIS
+    Opens a file for reading while refusing anyone else write, delete or rename access until the stream is closed.
+    #>
+    [CmdletBinding()]
+    [OutputType([IO.Stream])]
+    param([Parameter(Mandatory)][string]$Path)
+    return [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
 }
 
 function Install-RustDesk {
     <#
     .SYNOPSIS
     Downloads the pinned RustDesk release from its official GitHub repo into a private folder, checks the file's
-    SHA-256 against the pinned one, and installs it with the RustDesk service. Changes: installs a program and a
+    SHA-256 against the pinned one while holding it open so it can't be swapped, and installs it with the RustDesk
+    service. Changes: installs a program and a
     service; RustDesk's installer also adds Windows Firewall rules.
     #>
     [CmdletBinding(SupportsShouldProcess)]
@@ -455,16 +515,20 @@ function Install-RustDesk {
     $oldProgress = $ProgressPreference
     $ProgressPreference = 'SilentlyContinue'
     $folder = $null
+    $stream = $null
     try {
         $release = Invoke-RestMethod -UseBasicParsing -ErrorAction Stop -Headers @{ 'User-Agent' = 'tailnet-desk' } `
             -Uri "https://api.github.com/repos/rustdesk/rustdesk/releases/tags/$($s.RustDeskVersion)"
         $asset = Select-ReleaseAsset -Release $release -AssetName $s.RustDeskAsset -Sha256 $s.RustDeskSha256
         $folder = New-PrivateFolder
+        if (-not $folder) { return }
         $file = Join-Path $folder $asset.Name
         Write-Host "Downloading RustDesk $($s.RustDeskVersion) from github.com/rustdesk/rustdesk ..."
         Invoke-WebRequest -UseBasicParsing -ErrorAction Stop -Uri $asset.Url -OutFile $file
 
-        $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        # Hold the file open, refusing writes, deletes and renames, from the hash check until the installer exits.
+        $stream = Open-LockedFile -Path $file
+        $actual = (Get-FileHash -InputStream $stream -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
         if ($actual -ne $asset.Sha256) {
             throw "The download's SHA-256 doesn't match the pinned one. Nothing was installed."
         }
@@ -476,14 +540,17 @@ function Install-RustDesk {
             if ($p.ExitCode -ne 0) { throw "The RustDesk installer failed (exit code $($p.ExitCode))." }
             # The installer starts the service in the background; give it up to a minute.
             $deadline = (Get-Date).AddSeconds(60)
+            $running = $false
             while ((Get-Date) -lt $deadline) {
                 $svc = Get-Service -Name $s.ServiceName -ErrorAction SilentlyContinue
-                if ($svc -and "$($svc.Status)" -eq 'Running' -and (Get-RustDeskExe)) { break }
+                if ($svc -and "$($svc.Status)" -eq 'Running' -and (Get-RustDeskExe)) { $running = $true; break }
                 Start-Sleep -Seconds 2
             }
             if (-not (Get-RustDeskExe)) { throw 'RustDesk did not finish installing within a minute.' }
+            if (-not $running) { throw "The RustDesk service didn't start within a minute. Restart the PC and run this script again." }
         }
     } finally {
+        if ($stream) { $stream.Dispose() }
         $ProgressPreference = $oldProgress
         if ($folder) { Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue }
     }

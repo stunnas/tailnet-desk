@@ -54,9 +54,9 @@ if (-not $myIp) {
     exit 2
 }
 Write-Host "Tailscale is signed in. This PC's (the host's) Tailscale address: $myIp"
-if (@(ConvertTo-AddressList -Address $ControllerIp) -contains $myIp) {
-    throw "-ControllerIp includes this PC's own address ($myIp). Use the controller's address instead."
-}
+$given = @(ConvertTo-AddressList -Address $ControllerIp)
+# Refuses this PC's own address before anything else changes.
+$null = Resolve-ControllerIp -ControllerIp $given -OwnIp $myIp
 
 Write-Step 'Step 2 of 6: RustDesk'
 Install-RustDesk
@@ -69,10 +69,10 @@ Write-Host "RustDesk's firewall rules now apply to the $($setting.AdapterName) a
 
 Write-Step 'Step 4 of 6: RustDesk security settings'
 $current = Get-RustDeskOption -Exe $exe -Key @('whitelist')
-$controllers = @(Resolve-ControllerIp -ControllerIp $ControllerIp -CurrentWhitelist $current['whitelist'])
+$controllers = @(Resolve-ControllerIp -ControllerIp $given -CurrentWhitelist $current['whitelist'] -OwnIp $myIp)
 $options = Get-HostOption -ControllerIp $controllers
 if ($controllers.Count -gt 0) {
-    $source = if (@(ConvertTo-AddressList -Address $ControllerIp).Count -gt 0) { 'from -ControllerIp' } else { 'kept from before' }
+    $source = if ($given.Count -gt 0) { 'from -ControllerIp' } else { 'kept from before' }
     Write-Host "Direct IP access: on. Whitelist ($source): $($options['whitelist'])"
 } else {
     Write-Host 'No controller yet, so direct IP access is OFF.' -ForegroundColor Yellow
@@ -99,7 +99,8 @@ Write-Host '     Use a random 20+ character password from your password manager.
 Write-Host '  2. Two-factor authentication: turn it on and scan the QR code with your authenticator app.'
 Write-Host '     Never photograph or share the QR code: it is the secret.'
 if ($controllers.Count -eq 0) {
-    Write-Host "  3. When the controller is on Tailscale, run: .\Install-Host.ps1 -ControllerIp <the controller's 100.x address>"
+    Write-Host '  3. When the controller is on Tailscale, run this again with its address, for example:'
+    Write-Host '     .\Install-Host.ps1 -ControllerIp 100.64.0.11   (use the controller''s real 100.x address)'
 }
 Write-Host ''
 Write-Host "The controller connects to this PC's Tailscale address: $myIp"
