@@ -55,8 +55,9 @@ Tailscale. So:
 ### 2. RustDesk
 
 1. Download it **only** from [github.com/rustdesk/rustdesk/releases](https://github.com/rustdesk/rustdesk/releases).
-   Pick the release with the version the README lists as pinned ([Scripts](../README.md#scripts)), open its
-   **Assets** and pick the file ending in `x86_64.exe`. Fake RustDesk sites hand out malware, so don't use a search ad.
+   Pick the release with the pinned version: open [`TailnetDesk.psm1`](../scripts/windows/TailnetDesk.psm1) and read the line
+   `RustDeskVersion = '...'` near the top. Then open that
+   release's **Assets** and pick the file ending in `x86_64.exe`. Fake RustDesk sites hand out malware, so don't use a search ad.
 2. Run it and choose **Install** (not "Run without install"). Installing adds the RustDesk **service**, which
    lets you reach the PC even at the Windows sign-in screen.
 
@@ -109,11 +110,12 @@ Get-NetFirewallRule -DisplayName "RustDesk Service","rustdesk.exe" | Where-Objec
 Get-NetFirewallRule -DisplayName "RustDesk Service","rustdesk.exe" | Where-Object Action -eq "Allow" | Get-NetFirewallInterfaceFilter
 ```
 
-6. Make sure the firewall itself is on and blocks connections nobody asked for: Domain, Private and Public should
-   all show `Enabled` as `True` and `DefaultInboundAction` as `Block` or `NotConfigured`.
+6. Make sure the firewall itself is on and blocks connections nobody asked for. This reads what Windows actually
+   applies, including any company or Group Policy settings: Domain, Private and Public should all show `Enabled` as
+   `True` and `DefaultInboundAction` as `Block`.
 
 ```powershell
-Get-NetFirewallProfile | Select-Object Name, Enabled, DefaultInboundAction
+Get-NetFirewallProfile -PolicyStore ActiveStore | Select-Object Name, Enabled, DefaultInboundAction
 ```
 
 ### 4. RustDesk security settings
@@ -210,7 +212,7 @@ address. Then, in the same admin PowerShell window, run the script with it in pl
 This turns on direct IP access with only that address on RustDesk's whitelist. For more than one controller,
 separate the addresses with commas: `-ControllerIp 100.64.0.11,100.64.0.12`. Later runs without `-ControllerIp`
 keep the controller addresses already on the whitelist and drop anything that isn't a single Tailscale address, such
-as a range or this PC's own address.
+as a range or this PC's own address. If no valid address is left, direct IP access is turned off instead.
 
 Then go to the controller to [connect](controller-windows.md#3-connect).
 
@@ -219,7 +221,8 @@ Then go to the controller to [connect](controller-windows.md#3-connect).
 Run the check script on the host, in admin PowerShell in the `scripts\windows` folder (get it as in
 [the script path, steps 1 and 2](#1-get-the-scripts)). It changes nothing and prints PASS or FAIL for each item.
 Like the setup script, it hasn't been run on a real PC yet, so until it has, also confirm by hand: manual firewall
-commands 5 and 6 above, and the controller's [tests by hand](controller-windows.md#by-hand).
+commands 5 and 6 above, the settings in [step 4's table](#4-rustdesk-security-settings), and the controller's
+[tests by hand](controller-windows.md#by-hand).
 
 ```powershell
 .\Test-Host.ps1
@@ -243,6 +246,7 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 | "Not a Tailscale address" | An address given to `-ControllerIp` doesn't start with `100.`. | Copy the controller's address from the Tailscale admin console. |
 | "... is this PC's own address" | You gave the host's address instead of the controller's. | Use the controller's `100.x` address. |
 | "The '<' operator is reserved" | Angle brackets were left in a command. | Type the real value without `<` and `>`. |
+| "The RustDesk service didn't start within a minute" | RustDesk installed, but its background service didn't start. | Restart the PC and run the script again. |
 | "RustDesk didn't take the setting ..." | RustDesk refused a setting, usually because its service isn't running. | Restart the PC and run the script again. |
 
 ### FAIL lines from Test-Host.ps1
@@ -253,6 +257,7 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 | Network adapter 'Tailscale' exists | Reinstall Tailscale. If `Get-NetAdapter` shows it under another name, use that name in the manual firewall commands. |
 | RustDesk is installed / RustDesk service is running | Reinstall RustDesk ([manual step 2](#2-rustdesk)), choosing **Install**. A stopped service: restart the PC. |
 | Given controller address ... / Whitelist entry ... is one Tailscale address | Replace it with the controller's single `100.x` address, no ranges. |
+| Whitelist doesn't include this PC's own address | Remove the host's own `100.x` address from the whitelist: only controllers belong there. |
 | Whitelist is not empty while direct IP access is on | Add the controller's address to the whitelist, or turn off direct IP access. |
 | RustDesk setting ... | That setting differs from [step 4's table](#4-rustdesk-security-settings). Fix it in RustDesk, or run `Install-Host.ps1` again. |
 | RustDesk listens on TCP 21118 | Direct IP access is on but nothing listens: restart the PC. |
@@ -270,7 +275,8 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 | Lost the phone with the authenticator app | You can't pass two-factor. | Sit at the host, turn two-factor off and on in RustDesk's Security settings, and scan the new QR code. |
 
 **Undo the firewall step** (admin PowerShell, in `scripts\windows`). It puts RustDesk's Allow rules back on every
-network adapter; edge traversal stays `Block`.
+network adapter. The edge traversal setting (whether a rule may let in connections from outside your router) stays
+`Block`.
 
 ```powershell
 .\Undo-HostFirewall.ps1

@@ -34,8 +34,9 @@ Now go back to the host and add this PC's address to its whitelist
 ## 2. Install RustDesk
 
 1. Download it **only** from [github.com/rustdesk/rustdesk/releases](https://github.com/rustdesk/rustdesk/releases):
-   pick the release with the version the README lists as pinned ([Scripts](../README.md#scripts)), open its
-   **Assets** and pick the file ending in `x86_64.exe`.
+   pick the release with the pinned version: open [`TailnetDesk.psm1`](../scripts/windows/TailnetDesk.psm1) and read the line
+   `RustDeskVersion = '...'` near the top. Then open that
+   release's **Assets** and pick the file ending in `x86_64.exe`.
 2. Run it and choose **Install**.
 3. Two settings keep the controller from becoming a way in itself. In RustDesk, open **Settings**:
    - **Security:** leave **Enable direct IP access** off (the default). Then nothing on this PC accepts direct

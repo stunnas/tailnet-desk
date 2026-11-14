@@ -59,9 +59,10 @@ controllers locked, and don't let RustDesk remember the host's password on them
 | [`Test-FromController.ps1`](scripts/windows/Test-FromController.ps1) | Windows controller | Checks the host answers over Tailscale and not over the home network. Changes nothing. |
 | [`Undo-HostFirewall.ps1`](scripts/windows/Undo-HostFirewall.ps1) | Windows host, as administrator | Puts RustDesk's firewall rules back on every network adapter. |
 
-The scripts install pinned versions and check RustDesk's SHA-256 fingerprint before running it. The pinned versions,
-which the manual path uses too, are set in one place: `Setting` at the top of
-[`TailnetDesk.psm1`](scripts/windows/TailnetDesk.psm1) (`RustDeskVersion`, `TailscaleWinget`). They're written in PowerShell, which every Windows PC has, and the repo's checks in bash.
+The scripts install pinned versions and check RustDesk's SHA-256 fingerprint before running it. Both pins are set in
+one place, `Setting` at the top of [`TailnetDesk.psm1`](scripts/windows/TailnetDesk.psm1): open it and read the
+lines `RustDeskVersion = '...'` (also used by the guides' manual path) and `TailscaleWinget = '...'` (used only by
+the script; the manual path installs Tailscale's current release, and Tailscale updates itself either way). They're written in PowerShell, which every Windows PC has, and the repo's checks in bash.
 
 ## Folders
 
