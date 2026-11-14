@@ -34,7 +34,8 @@ Now go back to the host and add this PC's address to its whitelist
 ## 2. Install RustDesk
 
 1. Download it **only** from [github.com/rustdesk/rustdesk/releases](https://github.com/rustdesk/rustdesk/releases):
-   under the newest release, open **Assets** and pick the file ending in `x86_64.exe`.
+   pick the release with the version the README lists as pinned ([Scripts](../README.md#scripts)), open its
+   **Assets** and pick the file ending in `x86_64.exe`.
 2. Run it and choose **Install**.
 3. Two settings keep the controller from becoming a way in itself. In RustDesk, open **Settings**:
    - **Security:** leave **Enable direct IP access** off (the default). Then nothing on this PC accepts direct
@@ -67,25 +68,10 @@ You need two of the **host's** addresses:
 - Its **home address**: on the host, run `ipconfig` and read **IPv4 Address** under Wi-Fi or Ethernet (often
   `192.168.x.x`).
 
-### With the script
-
-1. Get the scripts as on the host ([host guide, script path, step 1](host-windows.md#1-get-the-scripts)).
-2. Open a **normal** PowerShell (not as administrator): press the Windows key, type `powershell`, press Enter.
-3. Type `cd ` (with a space), drag the `windows` folder from File Explorer into the window, and press **Enter**.
-4. Allow scripts for this window, then run the test with your two host addresses in place of the examples:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-```
-
-```powershell
-.\Test-FromController.ps1 -HostTailscaleIp 100.64.0.10 -HostHomeIp 192.168.0.10
-```
-
 ### By hand
 
-`Test-NetConnection` tries one port on one address and reports whether it got through (`TcpTestSucceeded`). Type
-the addresses without angle brackets.
+`Test-NetConnection` tries one port on one address and reports whether it got through (`TcpTestSucceeded`). Use
+the host's real addresses in place of the examples.
 
 1. **The Tailscale path is open.** Expect `TcpTestSucceeded : True`.
 
@@ -98,6 +84,24 @@ Test-NetConnection 100.64.0.10 -Port 21118
 
 ```powershell
 Test-NetConnection 192.168.0.10 -Port 21118
+```
+
+### With the script (not yet tested on a real PC)
+
+The same two tests in one go. Like the host scripts, it hasn't been run on a real PC yet, so do the tests by hand
+as well until it has.
+
+1. Get the scripts as on the host ([host guide, script path, step 1](host-windows.md#1-get-the-scripts)).
+2. Open a **normal** PowerShell (not as administrator): press the Windows key, type `powershell`, press Enter.
+3. Type `cd ` (with a space), drag the `windows` folder from File Explorer into the window, and press **Enter**.
+4. Allow scripts for this window, then run the test with your two host addresses in place of the examples:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+```powershell
+.\Test-FromController.ps1 -HostTailscaleIp 100.64.0.10 -HostHomeIp 192.168.0.10
 ```
 
 ### The tests no script can do

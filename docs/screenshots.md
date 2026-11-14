@@ -5,7 +5,7 @@ show, for example `docs/images/windows/rustdesk-security-unlock.png`.
 
 ## Rules
 
-Every screenshot is checked before it's committed. Cover or crop out:
+Check every screenshot by hand before committing it: the private data check skips images. Cover or crop out:
 
 - Tailscale addresses (`100.x`), home addresses (`192.168.x`), and any IPv6 address.
 - RustDesk IDs and one-time passwords shown in RustDesk's main window.

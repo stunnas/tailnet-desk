@@ -55,8 +55,8 @@ Tailscale. So:
 ### 2. RustDesk
 
 1. Download it **only** from [github.com/rustdesk/rustdesk/releases](https://github.com/rustdesk/rustdesk/releases).
-   Under the newest release, open **Assets** and pick the file ending in `x86_64.exe`. Fake RustDesk sites hand
-   out malware, so don't use a search ad.
+   Pick the release with the version the README lists as pinned ([Scripts](../README.md#scripts)), open its
+   **Assets** and pick the file ending in `x86_64.exe`. Fake RustDesk sites hand out malware, so don't use a search ad.
 2. Run it and choose **Install** (not "Run without install"). Installing adds the RustDesk **service**, which
    lets you reach the PC even at the Windows sign-in screen.
 
@@ -109,10 +109,11 @@ Get-NetFirewallRule -DisplayName "RustDesk Service","rustdesk.exe" | Where-Objec
 Get-NetFirewallRule -DisplayName "RustDesk Service","rustdesk.exe" | Where-Object Action -eq "Allow" | Get-NetFirewallInterfaceFilter
 ```
 
-6. Make sure the firewall itself is on: Domain, Private and Public should all show `True`.
+6. Make sure the firewall itself is on and blocks connections nobody asked for: Domain, Private and Public should
+   all show `Enabled` as `True` and `DefaultInboundAction` as `Block` or `NotConfigured`.
 
 ```powershell
-Get-NetFirewallProfile | Select-Object Name, Enabled
+Get-NetFirewallProfile | Select-Object Name, Enabled, DefaultInboundAction
 ```
 
 ### 4. RustDesk security settings
@@ -139,8 +140,9 @@ Then [check the host](#check-the-host) and go to the controller to [connect](con
 
 ## Script path (not yet tested on a real PC)
 
-> **Not yet run on a real Windows PC.** The script's logic is tested automatically, but until it has been run on a
-> real host, use the manual path above. See the [README's Status](../README.md#status).
+> **Not yet run on a real Windows PC.** The script's checks are tested automatically, but the steps that change
+> Windows aren't. Until it has been run on a real host, use the manual path above. See the
+> [README's Status](../README.md#status).
 
 The script does the manual path's steps except the ones that need you: signing in to Tailscale, turning off key
 expiry, choosing the password and scanning the two-factor QR code. It's safe to run more than once: each run skips
@@ -180,12 +182,12 @@ mark from these files, so Windows stops asking about them.
 
 What happens:
 
-1. **Tailscale** (version 1.104.4) is installed with winget, Windows' own installer. The first time, the script stops
+1. **Tailscale** (the pinned version) is installed with winget, Windows' own installer. The first time, the script stops
    and asks you to sign in: click the Tailscale icon by the clock, choose **Log in**, and sign in. Then run the same
    command again.
-2. **RustDesk** (version 1.5.3) is downloaded from its official GitHub page into a folder only administrators can
-   change. The script checks the file's SHA-256 fingerprint against the one stored in the script and refuses to
-   run a file that doesn't match.
+2. **RustDesk** (the pinned version) is downloaded from its official GitHub page into a new folder only
+   administrators can change. The script checks the file's SHA-256 fingerprint against the one stored in the script,
+   keeps the file locked until the installer finishes, and refuses to run a file that doesn't match.
 3. **The firewall:** RustDesk's Allow rules are limited to the Tailscale adapter.
 4. **RustDesk's settings:** the same as the manual table, except the password and two-factor. Direct IP access
    stays **off** for now, because there's no controller to whitelist yet.
@@ -207,7 +209,8 @@ address. Then, in the same admin PowerShell window, run the script with it in pl
 
 This turns on direct IP access with only that address on RustDesk's whitelist. For more than one controller,
 separate the addresses with commas: `-ControllerIp 100.64.0.11,100.64.0.12`. Later runs without `-ControllerIp`
-keep the whitelist as it is.
+keep the controller addresses already on the whitelist and drop anything that isn't a single Tailscale address, such
+as a range or this PC's own address.
 
 Then go to the controller to [connect](controller-windows.md#3-connect).
 
@@ -215,6 +218,8 @@ Then go to the controller to [connect](controller-windows.md#3-connect).
 
 Run the check script on the host, in admin PowerShell in the `scripts\windows` folder (get it as in
 [the script path, steps 1 and 2](#1-get-the-scripts)). It changes nothing and prints PASS or FAIL for each item.
+Like the setup script, it hasn't been run on a real PC yet, so until it has, also confirm by hand: manual firewall
+commands 5 and 6 above, and the controller's [tests by hand](controller-windows.md#by-hand).
 
 ```powershell
 .\Test-Host.ps1
@@ -236,7 +241,8 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 | "... contains a #requires statement for running as Administrator" | PowerShell isn't running as administrator. | Close it and open it again with **Run as administrator**. |
 | "winget is missing" | Older Windows without winget. | Install Tailscale from [tailscale.com/download](https://tailscale.com/download), then run the script again. |
 | "Not a Tailscale address" | An address given to `-ControllerIp` doesn't start with `100.`. | Copy the controller's address from the Tailscale admin console. |
-| "-ControllerIp includes this PC's own address" | You gave the host's address instead of the controller's. | Use the controller's `100.x` address. |
+| "... is this PC's own address" | You gave the host's address instead of the controller's. | Use the controller's `100.x` address. |
+| "The '<' operator is reserved" | Angle brackets were left in a command. | Type the real value without `<` and `>`. |
 | "RustDesk didn't take the setting ..." | RustDesk refused a setting, usually because its service isn't running. | Restart the PC and run the script again. |
 
 ### FAIL lines from Test-Host.ps1
@@ -252,8 +258,9 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 | RustDesk listens on TCP 21118 | Direct IP access is on but nothing listens: restart the PC. |
 | Windows Firewall is on for the ... profile | Turn Windows Firewall back on for that profile (Windows Security → Firewall & network protection). |
 | RustDesk firewall rules exist | Reinstall RustDesk; its installer creates them. |
-| Rule '...' only on Tailscale | Usually after a RustDesk update. Run [manual firewall commands 3 and 4](#3-firewall-let-rustdesk-answer-only-through-tailscale) again, or `Install-Host.ps1`. |
-| Port rule: ... | A rule opens port 21118 for every network. Find it in Windows Defender Firewall → Advanced settings → Inbound Rules, and delete it or limit it to Tailscale. |
+| Rule '...' only on Tailscale | Usually after a RustDesk update. Run [manual firewall commands 3 and 4](#3-firewall-let-rustdesk-answer-only-through-tailscale) again, or `Install-Host.ps1`. If the rule has another name, the manual commands won't find it: run `Install-Host.ps1`, or limit it to Tailscale in Windows Defender Firewall → Advanced settings, as for a port rule. |
+| Windows Firewall blocks unasked-for connections on the ... profile | Set **Inbound connections** back to **Block (default)** for that profile in Windows Defender Firewall → Advanced settings → Windows Defender Firewall Properties. |
+| Port rule: ... | A rule lets any program in on port 21118 (or on all ports) from every network. Find it in Windows Defender Firewall → Advanced settings → Inbound Rules, and delete it or limit it to Tailscale. |
 
 ### Other problems
 
