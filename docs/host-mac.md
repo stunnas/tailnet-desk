@@ -290,7 +290,7 @@ tests that prove the setup works must run from the controller.
 | "The pf rules didn't load" | The firewall step's startup item didn't load its rules. Its errors are in the log file the message names. | Run `./undo-pf.sh`, then `./enable-pf.sh` again. If it still fails, [open an issue](https://github.com/stunnas/tailnet-desk/issues) with what the log says. |
 | "The firewall step isn't installed, so there is nothing to undo" | `undo-pf.sh` found nothing of the pf step. | Nothing to do. |
 | "Something of the firewall step is still there" | `undo-pf.sh` couldn't remove all of it. | Restart the Mac and run `./undo-pf.sh` again. |
-| Private Relay stays "Unavailable" after the undo | pf is still on: something else uses it, or this step's reference couldn't be released (it's tied to the current boot, and may not match after the Mac slept). | Restart the Mac. If Private Relay is still unavailable, something else on the Mac uses pf. |
+| "pf itself stays on until you restart the Mac", or Private Relay stays "Unavailable" after the undo | pf is still on: this step's reference couldn't be released (the undo says why), or something else on the Mac uses pf. | Restart the Mac. If Private Relay is still unavailable, something else on the Mac uses pf. |
 
 ### FAIL lines from test-host.sh
 
