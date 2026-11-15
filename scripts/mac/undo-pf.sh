@@ -27,3 +27,4 @@ if td_pf_installed || /usr/bin/sudo /sbin/pfctl -a "$TD_PF_ANCHOR" -s rules 2> /
   exit 1
 fi
 echo "Done. RustDesk's port answers on every network again; the whitelist still limits who can connect."
+echo 'If nothing else uses pf, macOS turns iCloud Private Relay back on within a minute.'

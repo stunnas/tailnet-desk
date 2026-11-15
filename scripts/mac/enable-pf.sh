@@ -28,3 +28,4 @@ td_pf_enable
 echo
 echo "Done. RustDesk's port $TD_DIRECT_PORT now answers only to Tailscale addresses, also after a restart."
 echo 'Check from the controller with test-from-controller.sh, including --host-home-ip. Undo with ./undo-pf.sh.'
+echo 'While pf is on, macOS turns off iCloud Private Relay. The undo turns it back on.'
