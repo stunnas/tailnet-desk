@@ -10,8 +10,8 @@ BeforeAll {
     if (-not (Get-Command Get-NetAdapter -ErrorAction SilentlyContinue)) {
         function global:Get-NetAdapter { [CmdletBinding()] param([string[]]$Name) throw 'stub' }
     }
-    # Each mock of a real NetSecurity cmdlet removes the types of the parameters it is given (Windows types them as
-    # CimInstance or WildcardPattern), so the stubs leave them untyped too and both systems check the same thing.
+    # The Set-NetFirewallRule mocks remove the types of InputObject and InterfaceAlias (Windows types them as
+    # CimInstance and WildcardPattern), so the stubs leave parameters untyped too and both systems check the same thing.
     if (-not (Get-Command Set-NetFirewallRule -ErrorAction SilentlyContinue)) {
         function global:Set-NetFirewallRule {
             [CmdletBinding()] param([Parameter(ValueFromPipeline)]$InputObject, $InterfaceAlias, $EdgeTraversalPolicy)
@@ -20,8 +20,8 @@ BeforeAll {
     }
     if (-not (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue)) {
         function global:Get-NetFirewallRule {
-            [CmdletBinding()] param($DisplayName, $PolicyStore, [Parameter(ValueFromPipeline)]$AssociatedNetFirewallApplicationFilter)
-            process { throw 'stub' }
+            [CmdletBinding()] param($DisplayName, $PolicyStore)
+            throw 'stub'
         }
     }
     if (-not (Get-Command Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue)) {
@@ -629,6 +629,19 @@ Describe 'Get-RustDeskFirewallRule' {
         (@(Get-RustDeskFirewallRule).Name -join ',') | Should -Be 'renamed'
         Should -Invoke -ModuleName TailnetDesk Get-RuleOfFilter -Times 1 -Exactly
     }
+    It 'reads the given policy store, such as ActiveStore, for both the name and the program lookups' {
+        Mock -ModuleName TailnetDesk Get-NetFirewallRule { }
+        $null = Get-RustDeskFirewallRule -PolicyStore ActiveStore
+        $n = @((Get-TailnetDeskSetting).RuleNames).Count
+        Should -Invoke -ModuleName TailnetDesk Get-NetFirewallRule -Times $n -Exactly -ParameterFilter { $PolicyStore -eq 'ActiveStore' }
+        Should -Invoke -ModuleName TailnetDesk Get-NetFirewallApplicationFilter -Times 1 -Exactly -ParameterFilter { $PolicyStore -eq 'ActiveStore' }
+    }
+    It 'reads the local store when no policy store is given' {
+        Mock -ModuleName TailnetDesk Get-NetFirewallRule { }
+        $null = Get-RustDeskFirewallRule
+        Should -Invoke -ModuleName TailnetDesk Get-NetFirewallRule -Times 0 -ParameterFilter { $PolicyStore }
+        Should -Invoke -ModuleName TailnetDesk Get-NetFirewallApplicationFilter -Times 0 -ParameterFilter { $PolicyStore }
+    }
     It 'keeps enabled Allow rules once each, and drops Block rules' {
         Mock -ModuleName TailnetDesk Get-NetFirewallRule { @(
                 [pscustomobject]@{ Name = 'a'; Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound' }
@@ -658,6 +671,11 @@ Describe 'Get-ProgramFilesPath and Get-ProgramDataPath' {
         }
         Mock -ModuleName TailnetDesk Get-ItemProperty { [pscustomobject]@{ SystemRoot = 'D:\WINDOWS' } }
         Get-ProgramDataPath | Should -Be 'D:\ProgramData'
+    }
+    It 'refuses a SystemRoot without a drive, so no path is looked up from the current folder: "<_>"' -ForEach @('', 'WINDOWS', '%SystemDrive%\WINDOWS') {
+        $script:root = $_
+        Mock -ModuleName TailnetDesk Get-ItemProperty { [pscustomobject]@{ SystemRoot = $script:root } }
+        { Get-System32Exe -Name 'icacls.exe' } | Should -Throw '*system drive*'
     }
     It 'finds Windows'' own programs in System32 under SystemRoot, never through PATH' {
         Mock -ModuleName TailnetDesk Get-ItemProperty { [pscustomobject]@{ SystemRoot = 'D:\WINDOWS' } }
@@ -697,6 +715,10 @@ Describe 'New-PrivateFolder failure paths' {
         $path | Should -BeLike (Join-Path (Join-Path $TestDrive 'tailnet-desk') '*')
         $want = '/inheritance:r|/grant:r|*S-1-5-32-544:(OI)(CI)F|*S-1-5-18:(OI)(CI)F'
         Should -Invoke -ModuleName TailnetDesk Invoke-IcaclsTool -Times 2 -Exactly -ParameterFilter { $a = @($Argument); ($a[1..($a.Count - 1)] -join '|') -eq $want }
+        # Once on the shared folder and once on the new one.
+        $root = Join-Path $TestDrive 'tailnet-desk'
+        Should -Invoke -ModuleName TailnetDesk Invoke-IcaclsTool -Times 1 -Exactly -ParameterFilter { @($Argument)[0] -eq $root }
+        Should -Invoke -ModuleName TailnetDesk Invoke-IcaclsTool -Times 1 -Exactly -ParameterFilter { @($Argument)[0] -eq $path }
     }
     It 'accepts an existing folder owned by <Name>, as on a second run' -ForEach @(
         @{ Name = 'Administrators'; Sid = 'S-1-5-32-544' }
@@ -740,6 +762,12 @@ Describe 'Get-PortAllowRule' {
     }
     It 'returns only enabled inbound Allow rules for any program that cover the port, once each' {
         (@(Get-PortAllowRule).Name -join ',') | Should -Be 'open-any'
+    }
+    It 'reads the given policy store, such as ActiveStore, and the local store without one' {
+        $null = Get-PortAllowRule -PolicyStore ActiveStore
+        Should -Invoke -ModuleName TailnetDesk Get-NetFirewallPortFilter -Times 1 -Exactly -ParameterFilter { $PolicyStore -eq 'ActiveStore' }
+        $null = Get-PortAllowRule
+        Should -Invoke -ModuleName TailnetDesk Get-NetFirewallPortFilter -Times 1 -Exactly -ParameterFilter { -not $PolicyStore }
     }
     It 'never looks up the rule of a filter that does not cover the port' {
         $null = Get-PortAllowRule

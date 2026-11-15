@@ -370,7 +370,7 @@ function Test-ApplicationFilter {
 function Test-HomeIPv4 {
     <#
     .SYNOPSIS
-    True for one IPv4 address in a private home network range: 10.0.0.0/8, 172.16.0.0/12 or 192.168.0.0/16. Anything # check-private-data: allow
+    True for one IPv4 address in a private home network range: 10.x, 172.16.x to 172.31.x, or 192.168.x. Anything
     else (a Tailscale, loopback or public address) wouldn't test the host's home network path.
     #>
     [CmdletBinding()]
@@ -520,11 +520,17 @@ function Get-ProgramDataPath {
 }
 
 function Get-SystemRootPath {
-    <# .SYNOPSIS The Windows folder (such as C:\WINDOWS), from the machine registry rather than an environment variable. #>
+    <#
+    .SYNOPSIS
+    The Windows folder (such as C:\WINDOWS), from the machine registry rather than an environment variable. Throws
+    unless it starts with a drive, so a path built from it is never looked up from the current folder.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    return "$((Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop).SystemRoot)"
+    $root = "$((Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop).SystemRoot)"
+    if ($root -notmatch '^[A-Za-z]:\\') { throw "Can't tell the system drive from SystemRoot '$root'." }
+    return $root
 }
 
 function Get-System32Exe {
@@ -537,6 +543,7 @@ function Get-System32Exe {
 }
 
 function Get-RustDeskExe {
+    <# .SYNOPSIS rustdesk.exe from Program Files only, or $null when RustDesk isn't installed. #>
     [CmdletBinding()]
     param()
     $path = Join-Path (Get-ProgramFilesPath) 'RustDesk\rustdesk.exe'
