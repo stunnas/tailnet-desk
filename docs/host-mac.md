@@ -181,9 +181,12 @@ The script keeps the rule after a restart and can undo it. It never edits Apple'
 pf off for anything else that uses it.
 
 **The trade-off: while pf is on, macOS turns off iCloud Private Relay** (it reports "Some of your system settings
-prevent Private Relay from working"). Private Relay hides your IP address in Safari; RustDesk and Tailscale don't use
-it. The undo turns Private Relay back on. If you rely on Private Relay, skip this step: the whitelist, password and
-two-factor still protect RustDesk.
+prevent Private Relay from working"). Private Relay is part of iCloud+: it hides your IP address while you browse in
+Safari, and Apple says it also covers the Mac's DNS lookups and unencrypted traffic from other apps. Other browsers'
+pages (Chrome, Brave, Firefox, Tor Browser) don't go through it, and RustDesk and Tailscale don't use it. pf itself
+only drops incoming connections to RustDesk's port, so browsing works the same. The undo turns Private Relay back on.
+If you browse in Safari and rely on Private Relay, skip this step: the whitelist, password and two-factor still
+protect RustDesk.
 
 ```bash
 ./enable-pf.sh
