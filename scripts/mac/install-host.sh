@@ -32,7 +32,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --controller-ip) [ "$#" -ge 2 ] || { echo '--controller-ip needs an address.' >&2; exit 2; }; given="$given,$2"; shift 2 ;;
     --keep-sleep) keep_sleep=yes; shift ;;
-    -h | --help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) td_print_help "$0"; exit 0 ;;
     *) echo "Unknown option: $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -86,9 +86,9 @@ controllers=$(td_resolve_controllers "$given" "$current" "$my_ip")
 controller_args=()
 while IFS= read -r ip; do if [ -n "$ip" ]; then controller_args+=("$ip"); fi; done <<< "$controllers"
 if [ "${#controller_args[@]}" -gt 0 ]; then
-  source='from --controller-ip'
-  [ -n "$(td_address_list "$given")" ] || source='kept from before'
-  echo "Direct IP access: on. Whitelist ($source): $(IFS=,; echo "${controller_args[*]}")"
+  whitelist_source='from --controller-ip'
+  [ -n "$(td_address_list "$given")" ] || whitelist_source='kept from before'
+  echo "Direct IP access: on. Whitelist ($whitelist_source): $(IFS=,; echo "${controller_args[*]}")"
 else
   echo 'No controller yet, so direct IP access is OFF.'
 fi

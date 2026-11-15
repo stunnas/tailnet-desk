@@ -61,25 +61,25 @@ td_sh() {
 @test "td_resolve_controllers refuses a non-Tailscale address and this Mac's own" {
   td td_resolve_controllers 192.168.0.10
   [ "$status" -eq 2 ]
-  [[ "$output" == *"Not a Tailscale address"* ]]
+  [[ "$output" == *"Not a Tailscale address"* ]] || false
   td td_resolve_controllers '100.64.0.11,100.64.0.10' '' 100.64.0.10
   [ "$status" -eq 2 ]
-  [[ "$output" == *"this Mac's own address"* ]]
+  [[ "$output" == *"this Mac's own address"* ]] || false
 }
 
 @test "td_host_options turns direct access on with exactly the controllers, and off without" {
   td td_host_options 100.64.0.11 100.64.0.12
-  [[ "$output" == *$'whitelist=100.64.0.11,100.64.0.12\ndirect-server=Y'* ]]
+  [[ "$output" == *$'whitelist=100.64.0.11,100.64.0.12\ndirect-server=Y'* ]] || false
   td td_host_options
-  [[ "$output" == *'direct-server=N'* ]]
-  [[ "$output" != *'whitelist='* ]]
+  [[ "$output" == *'direct-server=N'* ]] || false
+  [[ "$output" != *'whitelist='* ]] || false
 }
 
 @test "td_host_options always uses no public servers and the permanent password only" {
   td td_host_options
   for want in custom-rendezvous-server=127.0.0.1 relay-server=127.0.0.1 verification-method=use-permanent-password \
     approve-mode=password enable-lan-discovery=N; do
-    [[ $'\n'"$output"$'\n' == *$'\n'"$want"$'\n'* ]]
+    [[ $'\n'"$output"$'\n' == *$'\n'"$want"$'\n'* ]] || false
   done
 }
 
@@ -119,36 +119,62 @@ enable-lan-discovery=N'
 @test "td_host_findings passes a host with direct access off and no controllers" {
   td_sh "printf '%s\nwhitelist=\ndirect-server=\n' '$good' | td_host_findings '' 100.64.0.10"
   [ "$status" -eq 0 ]
-  [[ "$output" != *FAIL* ]]
-  [[ "$output" == *PASS* ]]
+  [[ "$output" != *FAIL* ]] || false
+  [[ "$output" == *PASS* ]] || false
 }
 
 @test "td_host_findings passes a whitelisted controller with direct access on" {
   td_sh "printf '%s\nwhitelist=100.64.0.11\ndirect-server=Y\n' '$good' | td_host_findings '' 100.64.0.10"
-  [[ "$output" != *FAIL* ]]
+  [ "$status" -eq 0 ]
+  [[ "$output" != *FAIL* ]] || false
+  [[ "$output" == *$'PASS\tRustDesk setting whitelist'* ]] || false
+  [[ "$output" == *$'PASS\tRustDesk setting direct-server'* ]] || false
+  [[ "$output" == *$'PASS\tWhitelist entry \'100.64.0.11\' is one Tailscale address'* ]] || false
+}
+
+@test "td_host_findings fails this Mac's own address given as a controller" {
+  td_sh "printf '%s\nwhitelist=100.64.0.10\ndirect-server=Y\n' '$good' | td_host_findings '100.64.0.10' 100.64.0.10"
+  [[ "$output" == *$'FAIL\tWhitelist doesn\'t include this Mac\'s own address'* ]] || false
+}
+
+@test "td_option_value reads a setting's value, keeping any = after the first" {
+  td_sh "printf 'whitelist=100.64.0.11\nrelay-server=a=b\ndirect-server=\n' | td_option_value relay-server"
+  [ "$output" = 'a=b' ]
+  td_sh "printf 'whitelist=100.64.0.11\n' | td_option_value direct-server"
+  [ -z "$output" ]
+  td_sh "printf 'not-whitelist=x\nwhitelist=100.64.0.11\n' | td_option_value whitelist"
+  [ "$output" = 100.64.0.11 ]
+}
+
+@test "the Mac and Windows scripts set the same RustDesk settings" {
+  win=$(sed -n "s/^ *'\([a-z-]*\)' *= *'\([^']*\)'.*/\1=\2/p" "$ROOT/scripts/windows/TailnetDesk.psm1" | sort)
+  td td_host_options
+  mac=$(printf '%s\n' "$output" | grep -v '^direct-server=' | sort)
+  [ -n "$win" ]
+  [ "$mac" = "$win" ]
 }
 
 @test "td_host_findings fails a range left in the whitelist while direct access is off" {
   td_sh "printf '%s\nwhitelist=100.64.0.0/10\ndirect-server=\n' '$good' | td_host_findings '' 100.64.0.10"
   [ "$status" -eq 0 ]
-  [[ "$output" == *$'FAIL\tWhitelist entry \'100.64.0.0/10\' is one Tailscale address'* ]]
+  [[ "$output" == *$'FAIL\tWhitelist entry \'100.64.0.0/10\' is one Tailscale address'* ]] || false
 }
 
 @test "td_host_findings fails an empty whitelist while direct access is on" {
   td_sh "printf '%s\nwhitelist=\ndirect-server=Y\n' '$good' | td_host_findings '' 100.64.0.10"
-  [[ "$output" == *$'FAIL\tWhitelist is not empty while direct IP access is on'* ]]
+  [[ "$output" == *$'FAIL\tWhitelist is not empty while direct IP access is on'* ]] || false
 }
 
 @test "td_host_findings fails this Mac's own address in the whitelist" {
   td_sh "printf '%s\nwhitelist=100.64.0.10\ndirect-server=\n' '$good' | td_host_findings '' 100.64.0.10"
-  [[ "$output" == *$'FAIL\tWhitelist doesn\'t include this Mac\'s own address'* ]]
+  [[ "$output" == *$'FAIL\tWhitelist doesn\'t include this Mac\'s own address'* ]] || false
 }
 
 @test "td_host_findings reports an invalid given controller and a whitelist that differs from the given ones" {
   td_sh "printf '%s\nwhitelist=100.64.0.11\ndirect-server=Y\n' '$good' | td_host_findings '192.168.0.10' ''"
-  [[ "$output" == *$'FAIL\tGiven controller address \'192.168.0.10\' is one Tailscale address'* ]]
+  [[ "$output" == *$'FAIL\tGiven controller address \'192.168.0.10\' is one Tailscale address'* ]] || false
   td_sh "printf '%s\nwhitelist=100.64.0.11\ndirect-server=Y\n' '$good' | td_host_findings '100.64.0.12' ''"
-  [[ "$output" == *$'FAIL\tRustDesk setting whitelist'* ]]
+  [[ "$output" == *$'FAIL\tRustDesk setting whitelist'* ]] || false
 }
 
 @test "td_host_findings reports every failed setting, not just the first, under set -e" {
@@ -162,10 +188,10 @@ enable-lan-discovery=N'
   [ "$status" -eq 0 ]
   td_sh "printf 'PASS\ta\nFAIL\tb\tx\n' | td_print_findings"
   [ "$status" -ne 0 ]
-  [[ "$output" == *'FAIL  b  (x)'* ]]
+  [[ "$output" == *'FAIL  b  (x)'* ]] || false
   td_sh "printf '' | td_print_findings"
   [ "$status" -ne 0 ]
-  [[ "$output" == *'No checks ran'* ]]
+  [[ "$output" == *'No checks ran'* ]] || false
 }
 
 @test "td_pf_rules lets Tailscale in on IPv4 and IPv6 before blocking the port everywhere else" {
@@ -177,17 +203,43 @@ enable-lan-discovery=N'
 
 @test "td_pf_loader takes its own pf reference, never stops pf, and is valid bash" {
   td td_pf_loader
-  [[ "$output" == *'/sbin/pfctl -E'* ]]
-  [[ "$output" == *"-a 'com.apple/tailnet-desk' -f"* ]]
-  [[ "$output" != *'pfctl -d'* ]]
+  [[ "$output" == *'/sbin/pfctl -E'* ]] || false
+  [[ "$output" == *"-a 'com.apple/tailnet-desk' -f"* ]] || false
+  [[ "$output" != *'pfctl -d'* ]] || false
   printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/load-pf.sh"
   /bin/bash -n "$BATS_TEST_TMPDIR/load-pf.sh"
 }
 
+@test "the pf loader saves its token, and a second run releases the first reference before taking a new one" {
+  # Run the real loader text with a stand-in pfctl that logs its arguments and hands out tokens 1001, 1002, ...
+  dir="$BATS_TEST_TMPDIR/pf"; mkdir -p "$dir"
+  cat > "$BATS_TEST_TMPDIR/pfctl" << 'STUB'
+#!/bin/bash
+printf '%s\n' "$*" >> "$PFCTL_LOG"
+if [ "$1" = -E ]; then
+  n=$(( $(cat "$PFCTL_COUNT" 2> /dev/null || echo 1000) + 1 )); echo "$n" > "$PFCTL_COUNT"
+  printf 'No ALTQ support in kernel\npf enabled\nToken : %s\n' "$n"
+fi
+STUB
+  chmod +x "$BATS_TEST_TMPDIR/pfctl"
+  td td_pf_loader
+  printf '%s\n' "$output" | sed -e "s#/sbin/pfctl#$BATS_TEST_TMPDIR/pfctl#g" -e "s#^dir=.*#dir='$dir'#" > "$BATS_TEST_TMPDIR/load-pf.sh"
+  export PFCTL_LOG="$BATS_TEST_TMPDIR/pfctl.log" PFCTL_COUNT="$BATS_TEST_TMPDIR/count"
+  /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh"
+  [ "$(cat "$dir/token")" = 1001 ]
+  /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh"
+  [ "$(cat "$dir/token")" = 1002 ]
+  grep -qx -- '-X 1001' "$PFCTL_LOG"
+  [ "$(grep -c -- '^-E' "$PFCTL_LOG")" -eq 2 ]
+  run grep -q -- '^-d' "$PFCTL_LOG"
+  [ "$status" -ne 0 ]
+}
+
 @test "td_pf_plist is a valid property list that runs the loader at boot" {
   td td_pf_plist
-  [[ "$output" == *'<key>RunAtLoad</key><true/>'* ]]
-  [[ "$output" == *'load-pf.sh'* ]]
+  [[ "$output" == *'<key>RunAtLoad</key><true/>'* ]] || false
+  [[ "$output" == *'load-pf.sh'* ]] || false
+  [[ "$output" == *'<key>StandardErrorPath</key><string>/Library/Application Support/tailnet-desk/load-pf.log</string>'* ]] || false
   if command -v plutil > /dev/null; then
     printf '%s\n' "$output" > "$BATS_TEST_TMPDIR/p.plist"
     plutil -lint "$BATS_TEST_TMPDIR/p.plist"
@@ -201,11 +253,18 @@ enable-lan-discovery=N'
   [ -z "$output" ]
 }
 
-@test "td_team_from_codesign reads the signing team" {
-  td_sh "printf 'Identifier=com.carriez.rustdesk\nTeamIdentifier=HZF9JMC8YN\n' | td_team_from_codesign"
-  [ "$output" = HZF9JMC8YN ]
-  td_sh "printf 'TeamIdentifier=not set\n' | td_team_from_codesign"
-  [ "$output" = 'not set' ]
+@test "td_rustdesk_requirement asks for an Apple-issued certificate for RustDesk's team" {
+  td td_rustdesk_requirement
+  [ "$output" = 'anchor apple generic and certificate leaf[subject.OU] = "HZF9JMC8YN"' ]
+}
+
+@test "td_signed_by_rustdesk refuses something not signed by RustDesk's team" {
+  command -v codesign > /dev/null || skip 'codesign exists only on macOS'
+  td td_signed_by_rustdesk /bin/ls
+  [ "$status" -ne 0 ]
+  printf 'not signed\n' > "$BATS_TEST_TMPDIR/file"
+  td td_signed_by_rustdesk "$BATS_TEST_TMPDIR/file"
+  [ "$status" -ne 0 ]
 }
 
 @test "td_rustdesk_asset names the right disk image and hash for each Mac type" {
@@ -214,6 +273,7 @@ enable-lan-discovery=N'
   [ "$(sed -n 2p <<< "$output" | wc -c | tr -d ' ')" -eq 65 ]
   td td_rustdesk_asset x86_64
   [ "$(sed -n 1p <<< "$output")" = rustdesk-1.5.3-x86_64.dmg ]
+  [ "$(sed -n 2p <<< "$output" | wc -c | tr -d ' ')" -eq 65 ]
   td td_rustdesk_asset sparc
   [ "$status" -eq 2 ]
 }
@@ -228,10 +288,10 @@ enable-lan-discovery=N'
 @test "test-from-controller.sh refuses bad addresses before testing anything" {
   run /bin/bash "$ROOT/scripts/mac/test-from-controller.sh" --host-tailscale-ip 192.168.0.10
   [ "$status" -eq 2 ]
-  [[ "$output" == *'Not a Tailscale address'* ]]
+  [[ "$output" == *'Not a Tailscale address'* ]] || false
   run /bin/bash "$ROOT/scripts/mac/test-from-controller.sh" --host-tailscale-ip 100.64.0.10 --host-home-ip 127.0.0.1
   [ "$status" -eq 2 ]
-  [[ "$output" == *'Not a home network address'* ]]
+  [[ "$output" == *'Not a home network address'* ]] || false
 }
 
 @test "the scripts refuse unknown options and print their usage on --help" {
@@ -240,13 +300,26 @@ enable-lan-discovery=N'
     [ "$status" -eq 2 ]
     run /bin/bash "$ROOT/scripts/mac/$s.sh" --help
     [ "$status" -eq 0 ]
-    [[ "$output" == *'Usage:'* ]]
+    [[ "$output" == *'Usage:'* ]] || false
+    [[ "$output" != *'set -'* ]] || false
+    [[ "$output" != *'#'* ]] || false
   done
+}
+
+@test "the scripts refuse an option that's missing its address" {
+  run /bin/bash "$ROOT/scripts/mac/install-host.sh" --controller-ip
+  [ "$status" -eq 2 ]
+  [[ "$output" == *'needs an address'* ]] || false
+  run /bin/bash "$ROOT/scripts/mac/test-from-controller.sh" --host-tailscale-ip
+  [ "$status" -eq 2 ]
+  run /bin/bash "$ROOT/scripts/mac/test-from-controller.sh"
+  [ "$status" -eq 2 ]
+  [[ "$output" == *'Not a Tailscale address'* ]] || false
 }
 
 @test "install-host.sh refuses an invalid controller address before changing anything" {
   run /bin/bash "$ROOT/scripts/mac/install-host.sh" --controller-ip 100.64.0.0/10
   [ "$status" -eq 2 ]
-  [[ "$output" == *'Not a Tailscale address'* ]]
-  [[ "$output" != *'Step 1'* ]]
+  [[ "$output" == *'Not a Tailscale address'* ]] || false
+  [[ "$output" != *'Step 1'* ]] || false
 }

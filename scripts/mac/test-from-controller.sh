@@ -20,7 +20,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --host-tailscale-ip) [ "$#" -ge 2 ] || { echo "$1 needs an address." >&2; exit 2; }; host_ts=$2; shift 2 ;;
     --host-home-ip) [ "$#" -ge 2 ] || { echo "$1 needs an address." >&2; exit 2; }; host_home=$2; shift 2 ;;
-    -h | --help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) td_print_help "$0"; exit 0 ;;
     *) echo "Unknown option: $1 (see --help)" >&2; exit 2 ;;
   esac
 done

@@ -3,13 +3,14 @@
 # Written for macOS's own /bin/bash, version 3.2: no associative arrays, no mapfile, no ${var,,}.
 #
 # Sections: settings, checks (no system access; tests/mac covers them), system reads, and system changes. Each system
-# change says what it changes. Functions return non-zero and print to stderr on failure; the scripts run with
-# set -euo pipefail, so a failure stops them.
+# change says what it changes. Functions return non-zero and print to stderr on failure. The scripts run with
+# set -euo pipefail, so a failure stops them, except inside a check pipeline (findings | td_print_findings || ...),
+# where bash turns set -e off: there each step checks its own result and reports a FAIL line instead.
 #
 # Threat model, as on Windows: the scripts trust the signed-in account and everything running as it. They are run from
 # the user's Downloads folder, so a program running as the user could change them anyway. The hardening below protects
 # against mistakes and odd setups: programs come from fixed paths, never from PATH, and the downloaded RustDesk disk
-# image is checked by SHA-256 and by its Apple signing team before anything in it runs.
+# image is checked by SHA-256 and by its Apple-issued signing certificate before anything in it runs.
 
 # --- Settings ------------------------------------------------------------------------------------------------
 # Versions are pinned and bumped by hand after testing. The RustDesk version must match scripts/windows/TailnetDesk.psm1
@@ -22,6 +23,7 @@ TD_RUSTDESK_VERSION='1.5.3'
 TD_RUSTDESK_SHA256_ARM64='e6d30fa1633d772c48935907c208ca4e555a856fb2038af3aaa87a327c29360b'
 TD_RUSTDESK_SHA256_X86_64='74d06e6b2e273a128e8d36313e30d47db2063f453a4235ed4d9e5cdfdf9be538'
 TD_RUSTDESK_TEAM='HZF9JMC8YN'               # Apple Developer ID team that signs RustDesk's app and disk images
+TD_PF_LOG='/Library/Application Support/tailnet-desk/load-pf.log'   # the pf loader's errors, for the FAIL message
 TD_RUSTDESK_APP='/Applications/RustDesk.app'
 # RustDesk's startup items, which its Install button ("For starting on boot") creates. Without them, "Start service"
 # only runs RustDesk's server until the next restart.
@@ -165,6 +167,16 @@ td_whitelist_change() {
   printf '%s' "$not_kept"
 }
 
+# The value of setting $1 in "key=value" lines read from stdin (everything after the first =), or nothing.
+td_option_value() {
+  awk -v k="$1" 'index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }'
+}
+
+# Prints a script's usage: its header comment, from the line after #! to the first line that isn't a comment.
+td_print_help() {
+  awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$1"
+}
+
 # True when $1 equals one of the other arguments.
 td_in_args() {
   local want=$1 item
@@ -193,11 +205,8 @@ td_check() {
 td_host_findings() {
   local given_text=$1 own=${2-} current key value whitelist='' direct='' ip line given basis
   current=$(cat)
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    key=${line%%=*}; value=${line#*=}
-    case "$key" in whitelist) whitelist=$value ;; direct-server) direct=$value ;; esac
-  done <<< "$current"
+  whitelist=$(printf '%s\n' "$current" | td_option_value whitelist)
+  direct=$(printf '%s\n' "$current" | td_option_value direct-server)
   given=$(td_address_list "$given_text")
 
   if [ -n "$given" ]; then
@@ -230,7 +239,7 @@ td_host_findings() {
   while IFS= read -r line; do
     key=${line%%=*}; value=${line#*=}
     local have
-    have=$(printf '%s\n' "$current" | awk -F= -v k="$key" '$1 == k { sub(/^[^=]*=/, ""); print; exit }')
+    have=$(printf '%s\n' "$current" | td_option_value "$key")
     td_check "RustDesk setting $key" "want '$value', have '$have'" td_option_matches "$key" "$value" "$have"
   done <<< "$(td_host_options ${basis_args[@]+"${basis_args[@]}"})"
 }
@@ -253,11 +262,13 @@ td_print_findings() {
   [ "$failed" = no ]
 }
 
-# The pf rules for the opt-in firewall step: RustDesk's direct port answers only to Tailscale addresses, on IPv4 and
-# IPv6, whatever the Tailscale interface is called (its utun number changes). RustDesk's whitelist stays a second check.
+# The pf rules for the opt-in firewall step: RustDesk's direct port answers only to addresses in Tailscale's ranges, on
+# IPv4 and IPv6, whatever the Tailscale interface is called (its utun number changes, and macOS pf can't name a group of
+# interfaces). A few networks (carrier-grade NAT) also hand out addresses in 100.64.0.0/10, so on those the port can
+# still be reached from that network; RustDesk's whitelist, password and two-factor still apply there.
 td_pf_rules() {
   local port=${1:-$TD_DIRECT_PORT}
-  echo "# tailnet-desk: RustDesk's direct port $port answers only to Tailscale addresses. Undo with undo-pf.sh."
+  echo "# tailnet-desk: RustDesk's direct port $port answers only to addresses in Tailscale's ranges. Undo with undo-pf.sh."
   echo "pass in quick inet proto tcp from $TD_TAILSCALE_V4 to $TD_TAILSCALE_V4 port $port"
   echo "pass in quick inet6 proto tcp from $TD_TAILSCALE_V6 to $TD_TAILSCALE_V6 port $port"
   echo "block drop in quick proto tcp from any to any port $port"
@@ -270,11 +281,6 @@ td_rustdesk_asset() {
     x86_64) printf 'rustdesk-%s-x86_64.dmg\n%s\n' "$TD_RUSTDESK_VERSION" "$TD_RUSTDESK_SHA256_X86_64" ;;
     *) echo "Unsupported Mac type '$1'." >&2; return 2 ;;
   esac
-}
-
-# The signing team in codesign -dv output (read from stdin), or nothing.
-td_team_from_codesign() {
-  awk -F= '/^TeamIdentifier=/ { print $2; exit }'
 }
 
 # The token pfctl -E prints ("Token : 123"), read from stdin, or nothing.
@@ -303,10 +309,14 @@ td_rustdesk_exe() {
   [ -x "$exe" ] && echo "$exe"
 }
 
-# The signing team of an app or disk image ($1), or nothing when it isn't validly signed.
-td_signing_team() {
-  /usr/bin/codesign --verify --strict "$1" 2>/dev/null || return 0
-  /usr/bin/codesign -dv "$1" 2>&1 | td_team_from_codesign
+# The codesign requirement for RustDesk: a certificate Apple issued (anchor apple generic) to RustDesk's team.
+td_rustdesk_requirement() {
+  printf 'anchor apple generic and certificate leaf[subject.OU] = "%s"' "$TD_RUSTDESK_TEAM"
+}
+
+# True when an app or disk image ($1) has a valid signature from a certificate Apple issued to RustDesk's team.
+td_signed_by_rustdesk() {
+  /usr/bin/codesign --verify --strict -R="$(td_rustdesk_requirement)" "$1" > /dev/null 2>&1
 }
 
 # True when RustDesk's startup items are installed, so its server starts at every boot, even before anyone logs in.
@@ -354,11 +364,13 @@ td_rustdesk_set() {
   exe=$(td_rustdesk_exe) || { echo 'RustDesk is not installed.' >&2; return 1; }
   for pair in "$@"; do
     key=${pair%%=*}; value=${pair#*=}
-    /usr/bin/sudo -H "$exe" --option "$key" "$value" > /dev/null 2>&1 || true
+    local said
+    said=$(/usr/bin/sudo -H "$exe" --option "$key" "$value" 2>&1 | tr -d '\r' | head -n 3 || true)
     now=$(td_rustdesk_get "$key") || return 1
     now=${now#*=}
     if ! td_option_matches "$key" "$value" "$now"; then
       echo "RustDesk didn't take the setting $key (wanted '$value', reads '$now'). Is RustDesk open and its service installed?" >&2
+      [ -z "$said" ] || echo "RustDesk said: $said" >&2
       return 1
     fi
   done
@@ -369,7 +381,7 @@ td_rustdesk_set() {
 # installed. Changes: installs a program.
 td_install_rustdesk() {
   if td_rustdesk_exe > /dev/null; then echo 'RustDesk is already installed.'; return 0; fi
-  local asset name sha tmp dmg mnt actual team
+  local asset name sha tmp dmg mnt actual
   asset=$(td_rustdesk_asset "$(/usr/bin/uname -m)") || return 1
   name=$(echo "$asset" | sed -n 1p); sha=$(echo "$asset" | sed -n 2p)
   tmp=$(/usr/bin/mktemp -d) || return 1        # mktemp -d makes a folder only this user can open
@@ -384,16 +396,14 @@ td_install_rustdesk() {
     rm -rf "$tmp"; echo "The download's SHA-256 doesn't match the pinned one. Nothing was installed." >&2; return 1
   fi
   echo 'SHA-256 matches the pinned value.'
-  team=$(td_signing_team "$dmg")
-  if [ "$team" != "$TD_RUSTDESK_TEAM" ]; then
+  if ! td_signed_by_rustdesk "$dmg"; then
     rm -rf "$tmp"; echo "The disk image isn't signed by RustDesk's Apple team. Nothing was installed." >&2; return 1
   fi
   mkdir "$mnt"
   if ! /usr/bin/hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" "$dmg" > /dev/null; then
     rm -rf "$tmp"; echo "Couldn't open the disk image." >&2; return 1
   fi
-  team=$(td_signing_team "$mnt/RustDesk.app")
-  if [ "$team" != "$TD_RUSTDESK_TEAM" ]; then
+  if ! td_signed_by_rustdesk "$mnt/RustDesk.app"; then
     /usr/bin/hdiutil detach -quiet "$mnt" || true; rm -rf "$tmp"
     echo "The app in the disk image isn't signed by RustDesk's Apple team. Nothing was installed." >&2; return 1
   fi
@@ -401,7 +411,7 @@ td_install_rustdesk() {
   /usr/bin/sudo /usr/bin/ditto "$mnt/RustDesk.app" "$TD_RUSTDESK_APP"
   /usr/bin/hdiutil detach -quiet "$mnt" || true
   rm -rf "$tmp"
-  if [ "$(td_signing_team "$TD_RUSTDESK_APP")" != "$TD_RUSTDESK_TEAM" ]; then
+  if ! td_signed_by_rustdesk "$TD_RUSTDESK_APP"; then
     echo "RustDesk in Applications isn't signed by RustDesk's Apple team after copying. Delete it and run again." >&2
     return 1
   fi
@@ -430,7 +440,7 @@ td_pf_enable() {
     sleep 1
     tries=$((tries + 1))
   done
-  echo "The pf rules didn't load. See /var/log/system.log for tailnet-desk." >&2
+  echo "The pf rules didn't load. The loader's errors are in $TD_PF_LOG (read it with: sudo cat \"$TD_PF_LOG\")." >&2
   return 1
 }
 
@@ -451,20 +461,25 @@ td_pf_disable() {
     '' | *[!0-9]*) ;;
     *) /usr/bin/sudo /sbin/pfctl -X "$token" 2> /dev/null || true ;;   # never pfctl -d: that would stop pf for everything
   esac
-  /usr/bin/sudo /bin/rm -f "$TD_PF_PLIST" "$TD_PF_DIR/pf.rules" "$TD_PF_DIR/load-pf.sh" "$TD_PF_DIR/token"
+  /usr/bin/sudo /bin/rm -f "$TD_PF_PLIST" "$TD_PF_DIR/pf.rules" "$TD_PF_DIR/load-pf.sh" "$TD_PF_DIR/token" "$TD_PF_LOG"
   /usr/bin/sudo /bin/rmdir "$TD_PF_DIR" 2> /dev/null || true
 }
 
-# The loader the startup item runs as root: take a pf reference (pfctl -E, which keeps pf on until every holder lets
-# go), save its token for the undo, and load the rules into this step's anchor.
+# The loader the startup item runs as root: release the reference an earlier run took (when enable-pf.sh runs again
+# before a restart; after a restart the old token is simply invalid), take a new pf reference (pfctl -E, which keeps pf
+# on until every holder lets go), save its token for the undo, and load the rules into this step's anchor. It uses the
+# library's own td_pf_token_from_output, so the parsing the tests check is the parsing that runs.
 td_pf_loader() {
   cat << EOF
 #!/bin/bash
 # tailnet-desk pf loader, written by enable-pf.sh. Runs at boot as root. Undo with undo-pf.sh.
 set -eu
 dir='$TD_PF_DIR'
-out=\$(/sbin/pfctl -E 2>&1 || true)
-token=\$(printf '%s\n' "\$out" | awk -F': *' '/^Token *:/ { gsub(/[^0-9]/, "", \$2); print \$2; exit }')
+$(declare -f td_pf_token_from_output)
+old=\$(cat "\$dir/token" 2> /dev/null || true)
+case "\$old" in '' | *[!0-9]*) ;; *) /sbin/pfctl -X "\$old" > /dev/null 2>&1 || true ;; esac
+rm -f "\$dir/token"
+token=\$(/sbin/pfctl -E 2>&1 | td_pf_token_from_output || true)
 if [ -n "\$token" ]; then printf '%s\n' "\$token" > "\$dir/token"; fi
 /sbin/pfctl -a '$TD_PF_ANCHOR' -f "\$dir/pf.rules"
 EOF
@@ -479,6 +494,7 @@ td_pf_plist() {
   <key>Label</key><string>$TD_PF_LABEL</string>
   <key>ProgramArguments</key><array><string>/bin/bash</string><string>$TD_PF_DIR/load-pf.sh</string></array>
   <key>RunAtLoad</key><true/>
+  <key>StandardErrorPath</key><string>$TD_PF_LOG</string>
 </dict>
 </plist>
 EOF

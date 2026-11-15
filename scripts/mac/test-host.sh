@@ -18,7 +18,7 @@ given=''
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --controller-ip) [ "$#" -ge 2 ] || { echo '--controller-ip needs an address.' >&2; exit 2; }; given="$given,$2"; shift 2 ;;
-    -h | --help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) td_print_help "$0"; exit 0 ;;
     *) echo "Unknown option: $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -42,17 +42,21 @@ rustdesk_findings() {
   td_check 'RustDesk is installed' "not in $TD_RUSTDESK_APP" test -n "$exe"
   [ -n "$exe" ] || return 0
   td_check "RustDesk is signed by its Apple team ($TD_RUSTDESK_TEAM)" 'reinstall it from github.com/rustdesk/rustdesk' \
-    test "$(td_signing_team "$TD_RUSTDESK_APP")" = "$TD_RUSTDESK_TEAM"
+    td_signed_by_rustdesk "$TD_RUSTDESK_APP"
   td_check 'RustDesk starts at boot (its system service is installed)' \
     'open RustDesk and click Install under "For starting on boot"; Start service alone lasts until the next restart' \
     td_rustdesk_starts_at_boot
   td_check "RustDesk's background service is running" 'open RustDesk and allow its service' td_rustdesk_server_running
   td_rustdesk_server_running || return 0
 
+  # set -e doesn't apply inside this check pipeline, so a failed read is reported here rather than read as empty.
   # shellcheck disable=SC2046 # one key per word, on purpose
-  current=$(td_rustdesk_get $(td_host_option_keys))
+  if ! current=$(td_rustdesk_get $(td_host_option_keys)); then
+    td_finding 1 "RustDesk's settings could be read" 'quit and reopen RustDesk, check it is allowed in the background'
+    return 0
+  fi
   printf '%s\n' "$current" | td_host_findings "$given" "$ts_ip"
-  if td_option_matches direct-server Y "$(printf '%s\n' "$current" | awk -F= '$1 == "direct-server" { print $2 }')"; then
+  if td_option_matches direct-server Y "$(printf '%s\n' "$current" | td_option_value direct-server)"; then
     td_check "RustDesk listens on TCP $TD_DIRECT_PORT" 'nothing listening: quit and reopen RustDesk' td_port_listening "$TD_DIRECT_PORT"
   fi
 }
