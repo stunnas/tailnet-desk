@@ -128,7 +128,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 | What you see | What it means | Fix |
 |---|---|---|
 | "Not a Tailscale address" | `-HostTailscaleIp` isn't a Tailscale address (`100.64.x.x` to `100.127.x.x`). | Copy the host's address from the Tailscale admin console. |
-| "Not a home network address" | `-HostHomeIp` isn't one IPv4 address, or it's a Tailscale address. | Use the **IPv4 Address** that `ipconfig` shows on the host, such as `192.168.0.10`. |
+| "Not a home network address" | `-HostHomeIp` isn't one private IPv4 address (`192.168.x.x`, `10.x.x.x` or `172.16.x.x` to `172.31.x.x`). A Tailscale, loopback or public address wouldn't test the home network. | Use the **IPv4 Address** that `ipconfig` shows on the host, such as `192.168.0.10`. |
 | FAIL: This PC is signed in to Tailscale | Tailscale isn't signed in here. | Click the Tailscale icon by the clock and choose **Log in**. |
 | FAIL: Host's Tailscale address answers on 21118 | The host can't be reached over Tailscale on RustDesk's port. | Check Tailscale is connected on both, the host is awake, and direct IP access is on there. Then [check the host](host-windows.md#check-the-host). |
 | FAIL: Host's home address does NOT answer on 21118 | The host answers on the home network, so its firewall step isn't working. | [Check the host](host-windows.md#check-the-host) and fix what it marks FAIL. |
