@@ -51,7 +51,7 @@ None are taken yet. The script-output shots wait until the Mac scripts have run 
 | `battery-prevent-sleep.png` | Battery → Options with "Prevent automatic sleeping on the power adapter" on | Host manual 4 |
 | `macos-firewall-options.png` | Network → Firewall → Options with stealth mode on | Optional macOS firewall |
 | `install-host-mac-output.png` | The end of `install-host.sh` with PASS lines (addresses covered) | Host script path 2 |
-| `test-host-mac-output.png` | `test-host.sh` all PASS | Check the host |
+| `test-host-mac-output.png` | `test-host.sh` all PASS (addresses covered: it prints the whitelist) | Check the host |
 
 Save these in `docs/images/mac/`.
 

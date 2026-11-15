@@ -17,9 +17,9 @@ is `100.64.0.11`. Yours will be different: always use the real ones from your Ta
 1. [Before you start](#before-you-start)
 2. [The order across both devices](#the-order-across-both-devices)
 3. [Manual path](#manual-path)
-4. [Script path (not yet tested on a real Mac)](#script-path-not-yet-tested-on-a-real-mac)
+4. [Script path (partly tested on a real Mac)](#script-path-partly-tested-on-a-real-mac)
 5. [Optional: limit RustDesk to Tailscale in the firewall](#optional-limit-rustdesk-to-tailscale-in-the-firewall)
-6. [Optional: the macOS firewall](#optional-the-macos-firewall)
+6. [Optional: the macOS firewall (not yet tested)](#optional-the-macos-firewall-not-yet-tested)
 7. [Check the host](#check-the-host)
 8. [When something goes wrong](#when-something-goes-wrong)
 
@@ -38,7 +38,8 @@ is `100.64.0.11`. Yours will be different: always use the real ones from your Ta
 The host's whitelist needs the controller's Tailscale address, and the controller only gets one after it joins
 Tailscale. So:
 
-1. **Host:** this guide, steps 1 to 3 of the manual path (or the script's first run).
+1. **Host:** this guide, steps 1 and 2 of the manual path, and step 3 except the whitelist (or the script's first
+   run).
 2. **Controller:** its guide, step 1 ([Windows](controller-windows.md#1-join-tailscale), [Mac](controller-mac.md#1-join-tailscale)
    or [iPhone](controller-iphone.md#1-join-tailscale)). Note its `100.x` address.
 3. **Host:** finish this guide with the controller's address in the whitelist.
@@ -66,8 +67,14 @@ Tailscale. So:
    `TD_RUSTDESK_VERSION='...'` near the top. In that release's **Assets**, pick the file ending in `aarch64.dmg` for an
    Apple-chip Mac (Apple menu → About This Mac shows "Chip: Apple ...") or `x86_64.dmg` for an Intel Mac. Fake
    RustDesk sites hand out malware, so don't use a search ad.
-2. Open the `.dmg` and drag **RustDesk** into **Applications**. Open it from Applications; if macOS asks, choose
-   **Open**.
+2. Open the `.dmg` and drag **RustDesk** into **Applications**. Before opening it, check it's RustDesk's own: in
+   Terminal, run the command below. It must print `TeamIdentifier=HZF9JMC8YN`, RustDesk's Apple developer team (the
+   same value as `TD_RUSTDESK_TEAM` in the script). Then open it from Applications; if macOS asks, choose **Open**.
+
+```bash
+codesign -dv /Applications/RustDesk.app 2>&1 | grep TeamIdentifier
+```
+
 3. RustDesk shows "For starting on boot, you need to install system service". Click **Install** and enter your Mac
    password. This is the part that runs in the background and starts at every boot, so you can reach the Mac when
    nobody has opened RustDesk, even at the login screen. macOS then says "Background Items Added". A **Start
@@ -110,11 +117,13 @@ The screen turning off is fine.
 
 Then [check the host](#check-the-host) and go to the controller to connect.
 
-## Script path (not yet tested on a real Mac)
+## Script path (partly tested on a real Mac)
 
-> **Not yet run on a real Mac.** Most of the functions the scripts use are tested automatically on macOS's own
-> shell, but the scripts themselves haven't been run end to end. Until they have, use the manual path above. See
-> the [README's Status](../README.md#status).
+> **Partly tested.** The scripts' checks that don't touch the system are tested automatically on macOS's own shell.
+> On a real Mac that was already a host, `install-host.sh` (with `--keep-sleep`), `test-host.sh`, `enable-pf.sh` and
+> `undo-pf.sh` ran and worked, including after a restart. Not yet run: a fresh install on a Mac without RustDesk,
+> and the sleep step. For those, the manual path above is the tested route. See the
+> [README's Status](../README.md#status).
 
 The script does the manual path's steps except the ones that need you: installing and signing in to Tailscale,
 turning off key expiry, allowing RustDesk's service and its two permissions, choosing the password and scanning the
@@ -147,7 +156,7 @@ What happens:
    and that RustDesk's Apple developer team signed it, and refuses anything else. An existing RustDesk is kept as it
    is.
 3. **RustDesk's service and permissions:** the first time, the script stops and asks you to do manual step 2, items
-   2 to 5. Then run it again. RustDesk then stops using its public servers.
+   3 to 5 (open RustDesk from Applications first). Then run it again. RustDesk then stops using its public servers.
 4. **RustDesk's settings:** the same as the manual table, except the password and two-factor. Direct IP access stays
    **off** for now, because there's no controller to whitelist yet.
 5. **Sleep:** the Mac no longer sleeps on the charger (skip with `--keep-sleep`).
@@ -178,19 +187,24 @@ and the old entries stay in RustDesk's whitelist, so the check at the end fails 
 
 RustDesk's direct port listens on every network the Mac joins: home Wi-Fi, a café, a hotel. The whitelist refuses
 everyone but your controllers, but they can still knock. This step makes the Mac's built-in packet filter (pf) drop
-connections to that port unless they come from a Tailscale address, so on other networks RustDesk can't be reached
-at all. It's a second lock next to the whitelist.
+connections to that port unless they come from an address in Tailscale's ranges, so on an ordinary network RustDesk
+can't be reached at all. It's a second lock next to the whitelist.
+
+One limit: the rule goes by address, not by network, because macOS can't name Tailscale's network in a lasting way.
+A few networks, those using carrier-grade NAT (some mobile hotspots and providers), hand out addresses from the same
+range as Tailscale (`100.64.0.0/10`). On such a network, devices on it could still reach RustDesk's port, and only the
+whitelist, password and two-factor stop them.
 
 The script keeps the rule after a restart and can undo it. It never edits Apple's `/etc/pf.conf`, and it never turns
 pf off for anything else that uses it.
 
-**The trade-off: while pf is on, macOS turns off iCloud Private Relay** (it reports "Some of your system settings
-prevent Private Relay from working"). Private Relay is part of iCloud+: it hides your IP address while you browse in
-Safari, and Apple says it also covers the Mac's DNS lookups and unencrypted traffic from other apps. Other browsers'
-pages (Chrome, Brave, Firefox, Tor Browser) don't go through it, and RustDesk and Tailscale don't use it. pf itself
-only drops incoming connections to RustDesk's port, so browsing works the same. The undo turns Private Relay back on.
-If you browse in Safari and rely on Private Relay, skip this step: the whitelist, password and two-factor still
-protect RustDesk.
+**The trade-off: while pf is on, macOS turns off iCloud Private Relay.** System Settings then shows "Private Relay:
+Unavailable" and "Some of your system settings prevent Private Relay from working". Private Relay is part of iCloud+;
+macOS describes it as hiding your IP address and browsing activity in Safari and protecting your unencrypted internet
+traffic. So it matters most if you browse in Safari. Pages other browsers load over HTTPS (most pages, in Chrome,
+Brave, Firefox or Tor Browser) don't go through it. pf itself only drops incoming connections to RustDesk's port, so
+browsing works the same. After the undo, Private Relay comes back on if nothing else on the Mac uses pf. If you browse
+in Safari and rely on Private Relay, skip this step: the whitelist, password and two-factor still protect RustDesk.
 
 ```bash
 ./enable-pf.sh
@@ -220,7 +234,10 @@ A "No ALTQ support in kernel" message is harmless. To undo it: `sudo pfctl -a co
 `sudo pfctl -X 12345` with your token number. Never use `sudo pfctl -d`: that turns pf off for everything that uses
 it.
 
-## Optional: the macOS firewall
+## Optional: the macOS firewall (not yet tested)
+
+> Not yet tested with this setup. If you turn it on, check the controller can still connect, and that `ping` over
+> Tailscale still answers (the controller guides use it to check the two can see each other).
 
 macOS also has an app firewall, which is off by default. It decides which apps may accept connections at all,
 whatever the port. It's separate from the pf step above; both can be on.
@@ -259,13 +276,17 @@ tests that prove the setup works must run from the controller.
 | "Not a Tailscale address" | An address given to `--controller-ip` isn't a Tailscale address (`100.64.x.x` to `100.127.x.x`). | Copy the controller's address from the Tailscale admin console. |
 | "... is this Mac's own address" | You gave the host's address instead of the controller's. | Use the controller's `100.x` address. |
 | "Couldn't download ..." | The script couldn't reach GitHub. Nothing was installed. | Check the internet connection and try again later. |
-| "The download's SHA-256 doesn't match the pinned one" or "... isn't signed by RustDesk's Apple team" | The file from GitHub isn't the one this repo was tested with. Nothing was installed. | Don't install RustDesk by hand from that download. Try again later, and if it keeps happening, [open an issue](https://github.com/stunnas/tailnet-desk/issues). |
+| "The download's SHA-256 doesn't match the pinned one", "The disk image isn't signed by RustDesk's Apple team" or "The app in the disk image isn't signed ..." | The file from GitHub isn't the one this repo was tested with. Nothing was installed. | Don't install RustDesk by hand from that download. Try again later, and if it keeps happening, [open an issue](https://github.com/stunnas/tailnet-desk/issues). |
+| "Couldn't open the disk image" | macOS couldn't mount the downloaded file. Nothing was installed. | Run the script again. If it keeps happening, install RustDesk by hand ([manual step 2](#2-rustdesk)). |
+| "RustDesk in Applications isn't signed by RustDesk's Apple team after copying" | The copy in Applications doesn't pass the signature check. | Delete RustDesk from Applications and run the script again. |
+| "--controller-ip needs an address" or "Unknown option" | The script was run with a mistyped option. | Run it with `--help` to see its options. |
 | "Unsupported Mac type" | The Mac is neither an Apple-chip nor an Intel Mac. | Use the manual path. |
 | "RustDesk's system service isn't installed or running yet" | RustDesk hasn't been opened, or its system service wasn't installed. | Do [manual step 2](#2-rustdesk), items 2 to 5, then run the script again. |
 | "RustDesk refused to read the setting ..." or "RustDesk couldn't read the setting ..." | RustDesk's command line didn't answer. | Quit and reopen RustDesk, check it's allowed in the background, then run the script again. |
 | "RustDesk didn't take the setting ..." | RustDesk refused a setting, usually because it isn't running. | Open RustDesk, then run the script again. |
-| "The pf rules didn't load" | The firewall step's startup item didn't load its rules. | Run `./undo-pf.sh`, then `./enable-pf.sh` again. If it still fails, [open an issue](https://github.com/stunnas/tailnet-desk/issues). |
+| "The pf rules didn't load" | The firewall step's startup item didn't load its rules. Its errors are in the log file the message names. | Run `./undo-pf.sh`, then `./enable-pf.sh` again. If it still fails, [open an issue](https://github.com/stunnas/tailnet-desk/issues) with what the log says. |
 | "The firewall step isn't installed, so there is nothing to undo" | `undo-pf.sh` found nothing of the pf step. | Nothing to do. |
+| "Something of the firewall step is still there" | `undo-pf.sh` couldn't remove all of it. | Restart the Mac and run `./undo-pf.sh` again. |
 
 ### FAIL lines from test-host.sh
 
@@ -275,6 +296,8 @@ tests that prove the setup works must run from the controller.
 | RustDesk is installed | Install it ([manual step 2](#2-rustdesk)) into Applications. |
 | RustDesk is signed by its Apple team | The app in Applications isn't RustDesk's own. Delete it and install it again from [manual step 2](#2-rustdesk). |
 | RustDesk starts at boot (its system service is installed) | Open RustDesk and click **Install** under "For starting on boot". "Start service" alone only lasts until the next restart, so an unattended Mac becomes unreachable after a power cut or update. |
+| RustDesk's settings could be read | RustDesk's command line didn't answer. Quit and reopen RustDesk, check it's allowed in the background, and run the check again. |
+| No checks ran | Nothing was checked, so nothing passed. Run the script again and see what it printed before this line. |
 | RustDesk's background service is running | Open RustDesk and allow its service; check it's allowed in the background. |
 | Given controller address ... / Whitelist entry ... is one Tailscale address | Replace it with the controller's single `100.x` address, no ranges: run `./install-host.sh --controller-ip` with it, or edit the whitelist in RustDesk. This fails even while direct IP access is off, so turning it on later can't bring the entry back. |
 | Whitelist doesn't include this Mac's own address | Remove the host's own `100.x` address from the whitelist: only controllers belong there. |

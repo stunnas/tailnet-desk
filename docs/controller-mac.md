@@ -29,8 +29,11 @@ ping -c 3 100.64.0.10
 Lines with `time=` mean it works. "Request timeout" means they can't see each other: check both show as connected in
 the admin console.
 
-Now go back to the host and add this Mac's address to its whitelist (host guide, step 3:
+Now go back to the host and add this Mac's address to its whitelist (host guide, security settings:
 [Windows](host-windows.md#4-rustdesk-security-settings) or [Mac](host-mac.md#3-rustdesk-security-settings)).
+
+If `ping` gets no reply although both show as connected, the host may have a firewall that drops ping (the macOS
+firewall's stealth mode may do this). Go on to step 3: connecting is the real test.
 
 ## 2. Install RustDesk
 
@@ -120,7 +123,7 @@ it has.
 | "Your ip is blocked by the peer" | The host's whitelist doesn't have this Mac's address. | Check this Mac's `100.x` address in the admin console, and that Tailscale is on here. Then add it on the host. |
 | "Failed to connect" or a timeout | This Mac can't reach the host. | Check Tailscale is connected on both and the host is awake. Try `ping`. If ping works, check the host ([Windows](host-windows.md#check-the-host), [Mac](host-mac.md#check-the-host)). |
 | The host's screen is black, or clicks do nothing | The host (a Mac) hasn't allowed RustDesk to record the screen or control it. | On the host, see [its other problems](host-mac.md#other-problems). |
-| `succeeded!` on the home address | The host's firewall step isn't working (or a Mac host doesn't use it). | Check the host and fix what it marks FAIL. |
+| `succeeded!` on the home address | A Windows host's firewall step isn't working, or a Mac host doesn't use its optional firewall step. | On a Mac host without the [firewall step](host-mac.md#optional-limit-rustdesk-to-tailscale-in-the-firewall), this is expected: the whitelist refuses the connection instead. Otherwise check the host and fix what it marks FAIL. |
 | Lag or a choppy picture | The frame rate is too high. | Set it to 30 in the session's display menu. |
 
 ### Messages and FAIL lines from test-from-controller.sh
@@ -132,4 +135,4 @@ it has.
 | "That's this Mac's own address" | You gave the controller's address instead of the host's. | Use the host's `100.x` address. |
 | FAIL: This Mac is signed in to Tailscale | Tailscale isn't signed in here. | Click the Tailscale icon in the menu bar and choose **Log in**. |
 | FAIL: Host's Tailscale address answers on 21118 | The host can't be reached over Tailscale on RustDesk's port. | Check Tailscale is connected on both, the host is awake, and direct IP access is on there. Then check the host. |
-| FAIL: Host's home address does NOT answer on 21118 | The host answers on the home network, so its firewall step isn't working (or isn't used). | Check the host and fix what it marks FAIL. |
+| FAIL: Host's home address does NOT answer on 21118 | The host answers on the home network, so its firewall step isn't working (or isn't used). | On a Mac host without the optional firewall step, this is expected: run the test without `--host-home-ip`, or turn the step on. Otherwise check the host and fix what it marks FAIL. |
