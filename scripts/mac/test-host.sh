@@ -25,10 +25,19 @@ done
 if [ "$(id -u)" -eq 0 ]; then echo 'Run this as yourself, not with sudo: it asks for your password when needed.' >&2; exit 2; fi
 
 findings() {
-  local ts_ip exe current
+  local ts_ip
   ts_ip=$(td_tailscale_ipv4)
   td_check 'Tailscale is signed in' 'no Tailscale address' test -n "$ts_ip"
+  rustdesk_findings "$ts_ip"
+  # The firewall step doesn't depend on RustDesk, so it's checked even when RustDesk isn't running.
+  if td_pf_installed; then
+    td_check "The firewall step's rules are loaded and pf is on" 'run ./enable-pf.sh again, or ./undo-pf.sh' td_pf_rules_loaded
+  fi
+}
 
+# RustDesk's checks; later ones need the earlier ones to pass, so it stops at the first that doesn't.
+rustdesk_findings() {
+  local ts_ip=$1 exe current
   exe=$(td_rustdesk_exe || true)
   td_check 'RustDesk is installed' "not in $TD_RUSTDESK_APP" test -n "$exe"
   [ -n "$exe" ] || return 0
@@ -42,10 +51,6 @@ findings() {
   printf '%s\n' "$current" | td_host_findings "$given" "$ts_ip"
   if td_option_matches direct-server Y "$(printf '%s\n' "$current" | awk -F= '$1 == "direct-server" { print $2 }')"; then
     td_check "RustDesk listens on TCP $TD_DIRECT_PORT" 'nothing listening: quit and reopen RustDesk' td_port_listening "$TD_DIRECT_PORT"
-  fi
-
-  if td_pf_installed; then
-    td_check "The firewall step's rules are loaded and pf is on" 'run ./enable-pf.sh again, or ./undo-pf.sh' td_pf_rules_loaded
   fi
 }
 
