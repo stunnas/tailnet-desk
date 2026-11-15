@@ -125,8 +125,9 @@ Then [check the host](#check-the-host) and go to the controller to connect.
 > shell. On a real Mac that was already a host, `install-host.sh` (with `--keep-sleep`), `test-host.sh`,
 > `enable-pf.sh` and `undo-pf.sh` ran and worked with the current scripts, including `enable-pf.sh` twice before the
 > undo. The firewall check passed after a restart with an earlier version of the pf step; the current one's restart
-> handling is tested only against stand-ins so far. Not yet run: a fresh install on a Mac without RustDesk, and the sleep step. For a fresh
-> install, the manual path above is the tested route. See the [README's Status](../README.md#status).
+> handling is tested only against stand-ins so far. Not yet run: a fresh install on a Mac without RustDesk, the sleep
+> step, and the undo's path for a pf reference it can't release. For a fresh install, the manual path above is the
+> tested route. See the [README's Status](../README.md#status).
 
 The script does the manual path's steps except the ones that need you: installing and signing in to Tailscale,
 turning off key expiry, allowing RustDesk's service and its two permissions, choosing the password and scanning the
