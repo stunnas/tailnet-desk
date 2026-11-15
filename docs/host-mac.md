@@ -68,11 +68,13 @@ Tailscale. So:
    Apple-chip Mac (Apple menu → About This Mac shows "Chip: Apple ...") or `x86_64.dmg` for an Intel Mac. Fake
    RustDesk sites hand out malware, so don't use a search ad.
 2. Open the `.dmg` and drag **RustDesk** into **Applications**. Before opening it, check it's RustDesk's own: in
-   Terminal, run the command below. It must print `TeamIdentifier=HZF9JMC8YN`, RustDesk's Apple developer team (the
-   same value as `TD_RUSTDESK_TEAM` in the script). Then open it from Applications; if macOS asks, choose **Open**.
+   Terminal, run the command below. It checks the signature is valid and that Apple issued it to RustDesk's developer
+   team, `HZF9JMC8YN` (the same check and value as `TD_RUSTDESK_TEAM` in the script). It must print `OK`; an error or
+   no output means it isn't RustDesk's own, so delete it. Then open it from Applications; if macOS asks, choose
+   **Open**.
 
 ```bash
-codesign -dv /Applications/RustDesk.app 2>&1 | grep TeamIdentifier
+codesign --verify --strict -R='anchor apple generic and certificate leaf[subject.OU] = "HZF9JMC8YN"' /Applications/RustDesk.app && echo OK
 ```
 
 3. RustDesk shows "For starting on boot, you need to install system service". Click **Install** and enter your Mac
@@ -119,11 +121,12 @@ Then [check the host](#check-the-host) and go to the controller to connect.
 
 ## Script path (partly tested on a real Mac)
 
-> **Partly tested.** The scripts' checks that don't touch the system are tested automatically on macOS's own shell.
-> On a real Mac that was already a host, `install-host.sh` (with `--keep-sleep`), `test-host.sh`, `enable-pf.sh` and
-> `undo-pf.sh` ran and worked, including after a restart. Not yet run: a fresh install on a Mac without RustDesk,
-> and the sleep step. For those, the manual path above is the tested route. See the
-> [README's Status](../README.md#status).
+> **Partly tested.** The shared library's checks that don't touch the system are tested automatically on macOS's own
+> shell. On a real Mac that was already a host, `install-host.sh` (with `--keep-sleep`), `test-host.sh`,
+> `enable-pf.sh` and `undo-pf.sh` ran and worked, and the firewall check passed after a restart. Those runs came
+> before the latest changes to the pf loader and the signing check. Not yet run: a fresh install on a Mac without
+> RustDesk, the sleep step, and running `enable-pf.sh` a second time before `undo-pf.sh`. For a fresh install, the
+> manual path above is the tested route. See the [README's Status](../README.md#status).
 
 The script does the manual path's steps except the ones that need you: installing and signing in to Tailscale,
 turning off key expiry, allowing RustDesk's service and its two permissions, choosing the password and scanning the
@@ -218,7 +221,8 @@ To undo it:
 
 Then run the controller's test with the host's home address: that test must now show the port closed.
 
-**By hand, until the next restart** (the same rule without the startup item). Each command is one line:
+**By hand, until the next restart** (the same rule without the startup item; not yet tested by hand). Each command
+is one line:
 
 ```bash
 sudo pfctl -E
@@ -243,8 +247,7 @@ macOS also has an app firewall, which is off by default. It decides which apps m
 whatever the port. It's separate from the pf step above; both can be on.
 
 1. System Settings → Network → **Firewall**: turn it on.
-2. Click **Options**: turn on **Enable stealth mode** (the Mac stops answering probes such as ping from other
-   networks). Make sure RustDesk is listed as **Allow incoming connections**. Don't turn on "Block all incoming
+2. Click **Options**: turn on **Enable stealth mode** (the Mac stops answering probes such as ping). Make sure RustDesk is listed as **Allow incoming connections**. Don't turn on "Block all incoming
    connections": that blocks RustDesk too.
 3. Connect from the controller again to check RustDesk still works.
 

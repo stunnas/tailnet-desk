@@ -11,6 +11,9 @@ two settings, and the tests that prove the host is locked down.
 **Example addresses in these guides:** the host is `100.64.0.10` (home address `192.168.0.10`) and this controller
 is `100.64.0.11`. Use your real ones from the Tailscale admin console.
 
+**Not yet followed on a Mac controller.** Its steps match the Mac host guide's and the Windows controller guide's,
+but nobody has followed this guide end to end yet, and RustDesk's menu names may differ in your version.
+
 ## 1. Join Tailscale
 
 1. Download the **Standalone** Mac app from [tailscale.com/download/mac](https://tailscale.com/download/mac) and open
@@ -41,7 +44,14 @@ firewall's stealth mode may do this). Go on to step 3: connecting is the real te
    Pick the release with the pinned version: open [`tailnet-desk.sh`](../scripts/mac/tailnet-desk.sh) and read the line
    `TD_RUSTDESK_VERSION='...'`. In its **Assets**, pick `aarch64.dmg` for an Apple-chip Mac or `x86_64.dmg` for an
    Intel Mac.
-2. Open the `.dmg`, drag **RustDesk** into **Applications**, and open it from there.
+2. Open the `.dmg` and drag **RustDesk** into **Applications**. Check it's RustDesk's own before opening it: this
+   must print `OK` (see the [host guide's step](host-mac.md#2-rustdesk) for what it checks). Then open it from
+   Applications.
+
+```bash
+codesign --verify --strict -R='anchor apple generic and certificate leaf[subject.OU] = "HZF9JMC8YN"' /Applications/RustDesk.app && echo OK
+```
+
 3. Two settings keep the controller from becoming a way in itself. In RustDesk, open **Settings**:
    - **Security:** leave **Enable direct IP access** off (the default). Then nothing on this Mac accepts direct
      RustDesk connections.
@@ -132,6 +142,7 @@ it has.
 |---|---|---|
 | "Not a Tailscale address" | `--host-tailscale-ip` isn't a Tailscale address (`100.64.x.x` to `100.127.x.x`). | Copy the host's address from the Tailscale admin console. |
 | "Not a home network address" | `--host-home-ip` isn't one private IPv4 address (`192.168.x.x`, `10.x.x.x` or `172.16.x.x` to `172.31.x.x`). | Use the host's home address, as above. |
+| "--host-tailscale-ip needs an address", "--host-home-ip needs an address" or "Unknown option" | The script was run with a mistyped option. | Run it with `--help` to see its options. |
 | "That's this Mac's own address" | You gave the controller's address instead of the host's. | Use the host's `100.x` address. |
 | FAIL: This Mac is signed in to Tailscale | Tailscale isn't signed in here. | Click the Tailscale icon in the menu bar and choose **Log in**. |
 | FAIL: Host's Tailscale address answers on 21118 | The host can't be reached over Tailscale on RustDesk's port. | Check Tailscale is connected on both, the host is awake, and direct IP access is on there. Then check the host. |

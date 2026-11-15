@@ -57,7 +57,7 @@ Save these in `docs/images/mac/`.
 
 ## Shot list: iPhone
 
-Taken on the iPhone (the owner takes these: press the side button and volume up together). Crop the status bar out:
+None are taken yet. Taken on the iPhone (the owner takes these: press the side button and volume up together). Crop the status bar out:
 it can show the carrier, time and notifications.
 
 | File | Shows | Guide and step |

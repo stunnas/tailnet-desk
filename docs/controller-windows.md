@@ -3,7 +3,7 @@
 [Back to the README](../README.md) · [Glossary](glossary.md)
 
 > **Do this on the CONTROLLER**: the Windows PC you'll sit at (for example your laptop). The computer you'll
-> control is the host; set it up with [its own guide](host-windows.md).
+> control is the host; set it up with its own guide: [Windows](host-windows.md) or [Mac](host-mac.md).
 
 A controller only views the host and sends your mouse and keyboard, so it needs far less than the host: two
 installs, two settings, and the tests that prove the host is locked down.
@@ -66,8 +66,8 @@ nothing. For the home network test, this PC must be on the same home network as 
 You need two of the **host's** addresses:
 
 - Its **Tailscale address** (`100.x`), from the admin console.
-- Its **home address**: on the host, run `ipconfig` and read **IPv4 Address** under Wi-Fi or Ethernet (often
-  `192.168.x.x`).
+- Its **home address**: on a Windows host, run `ipconfig` and read **IPv4 Address** under Wi-Fi or Ethernet; on a Mac
+  host, System Settings → Wi-Fi → **Details** next to the network, **IP address** (often `192.168.x.x`).
 
 ### By hand
 
@@ -81,7 +81,9 @@ Test-NetConnection 100.64.0.10 -Port 21118
 ```
 
 2. **The home network path is closed.** Expect `TcpTestSucceeded : False`, plus a warning that the connection
-   failed. That's the host's firewall doing its job. `True` means the host's firewall step didn't take effect.
+   failed. That's the host's firewall doing its job. `True` means the host's firewall step didn't take effect. A Mac
+   host without its optional [firewall step](host-mac.md#optional-limit-rustdesk-to-tailscale-in-the-firewall)
+   answers here, as expected: its whitelist refuses the connection instead.
 
 ```powershell
 Test-NetConnection 192.168.0.10 -Port 21118
@@ -117,10 +119,10 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 | What you see | What it means | Fix |
 |---|---|---|
 | "Your ip is blocked by the peer" | The host's whitelist doesn't have this PC's address. | Check this PC's `100.x` address in the admin console, and that Tailscale is on here. Then add it on the host. |
-| "Failed to connect" or a timeout | This PC can't reach the host. | Check Tailscale is connected on both and the host is awake. Try `ping`. If ping works, [check the host](host-windows.md#check-the-host). |
+| "Failed to connect" or a timeout | This PC can't reach the host. | Check Tailscale is connected on both and the host is awake. Try `ping`. If ping works, check the host ([Windows](host-windows.md#check-the-host), [Mac](host-mac.md#check-the-host)). |
 | "The '<' operator is reserved" | Angle brackets were left in a command. | Type the real address without `<` and `>`. |
 | "That's this PC's own address" | You gave the controller's address instead of the host's. | Use the host's `100.x` address. |
-| `TcpTestSucceeded : True` on the home address | The host's firewall step isn't working. | [Check the host](host-windows.md#check-the-host) and fix what it marks FAIL. |
+| `TcpTestSucceeded : True` on the home address | A Windows host's firewall step isn't working, or a Mac host doesn't use its optional firewall step. | On a Mac host without the [firewall step](host-mac.md#optional-limit-rustdesk-to-tailscale-in-the-firewall), this is expected. Otherwise check the host ([Windows](host-windows.md#check-the-host), [Mac](host-mac.md#check-the-host)) and fix what it marks FAIL. |
 | Lag or a choppy picture | The frame rate is too high. | Set it to 30 in the session's display menu. |
 
 ### Messages and FAIL lines from Test-FromController.ps1
@@ -130,5 +132,5 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 | "Not a Tailscale address" | `-HostTailscaleIp` isn't a Tailscale address (`100.64.x.x` to `100.127.x.x`). | Copy the host's address from the Tailscale admin console. |
 | "Not a home network address" | `-HostHomeIp` isn't one private IPv4 address (`192.168.x.x`, `10.x.x.x` or `172.16.x.x` to `172.31.x.x`). A Tailscale, loopback or public address wouldn't test the home network. | Use the **IPv4 Address** that `ipconfig` shows on the host, such as `192.168.0.10`. |
 | FAIL: This PC is signed in to Tailscale | Tailscale isn't signed in here. | Click the Tailscale icon by the clock and choose **Log in**. |
-| FAIL: Host's Tailscale address answers on 21118 | The host can't be reached over Tailscale on RustDesk's port. | Check Tailscale is connected on both, the host is awake, and direct IP access is on there. Then [check the host](host-windows.md#check-the-host). |
-| FAIL: Host's home address does NOT answer on 21118 | The host answers on the home network, so its firewall step isn't working. | [Check the host](host-windows.md#check-the-host) and fix what it marks FAIL. |
+| FAIL: Host's Tailscale address answers on 21118 | The host can't be reached over Tailscale on RustDesk's port. | Check Tailscale is connected on both, the host is awake, and direct IP access is on there. Then check the host ([Windows](host-windows.md#check-the-host), [Mac](host-mac.md#check-the-host)). |
+| FAIL: Host's home address does NOT answer on 21118 | The host answers on the home network, so its firewall step isn't working (or a Mac host doesn't use it). | On a Mac host without the optional firewall step, this is expected: run the test without `-HostHomeIp`, or turn the step on. Otherwise check the host ([Windows](host-windows.md#check-the-host), [Mac](host-mac.md#check-the-host)) and fix what it marks FAIL. |
