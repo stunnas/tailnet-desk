@@ -92,7 +92,7 @@ Phase 1 (Windows) is being tested; phase 2 (Mac) and the iPhone guide are being 
 | The shared module (`TailnetDesk.psm1`) | Its checks are tested automatically, and so are most of its steps, with the Windows commands they call replaced by stand-ins (mocks). The firewall reads that pass rules from one Windows command to the next aren't. |
 | The four scripts themselves | Not tested automatically: their step order and how they combine the module's results are checked only by running them. |
 | The scripts on a real PC | `Test-Host.ps1` and the module's read-only commands ran on a set-up Windows 11 PC: RustDesk's settings, the firewall profiles and rules, the registry paths and the locked-installer launch all worked. **`Install-Host.ps1` hasn't been run on a real PC yet.** Until it has, follow the guides' manual path. |
-| Mac guides | Most manual host steps match a MacBook set up as a host with RustDesk 1.5.3 and used from an iPhone. Not yet followed: the ID and relay server setting, the firewall steps, and the Mac controller guide. |
+| Mac guides | The manual host steps match a MacBook set up as a host with RustDesk 1.5.3 and used from an iPhone. Not yet followed: the firewall steps and the Mac controller guide. |
 | The Mac scripts | Their checks are tested automatically on macOS's own bash 3.2. **Not yet run end to end on a real Mac.** |
 | iPhone guide | Matches an iPhone used as a controller for a Mac host; not yet followed with a Windows host. |
 
