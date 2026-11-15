@@ -142,13 +142,17 @@ Then [check the host](#check-the-host) and go to the controller to [connect](con
 
 ## Script path (not yet tested on a real PC)
 
-> **Not yet run on a real Windows PC.** The script's checks are tested automatically, but the steps that change
-> Windows aren't. Until it has been run on a real host, use the manual path above. See the
+> **Not yet run on a real Windows PC.** The script is tested automatically, but with the Windows commands it calls
+> replaced by stand-ins. Until it has been run on a real host, use the manual path above. See the
 > [README's Status](../README.md#status).
 
 The script does the manual path's steps except the ones that need you: signing in to Tailscale, turning off key
 expiry, choosing the password and scanning the two-factor QR code. It's safe to run more than once: each run skips
 what's already done and keeps the controllers already on the whitelist.
+
+The scripts run as administrator, so they trust your Windows account and every program running as you: such a
+program could change the scripts in your Downloads folder before you run them. Only run them on a PC you trust,
+from a ZIP you just downloaded from this repo.
 
 ### 1. Get the scripts
 
@@ -184,12 +188,15 @@ mark from these files, so Windows stops asking about them.
 
 What happens:
 
-1. **Tailscale** (the pinned version) is installed with winget, Windows' own installer. The first time, the script stops
+1. **Tailscale** (the pinned version) is installed with winget, Windows' own installer, if it isn't installed yet. An
+   existing Tailscale is kept as it is. The first time, the script stops
    and asks you to sign in: click the Tailscale icon by the clock, choose **Log in**, and sign in. Then run the same
    command again.
-2. **RustDesk** (the pinned version) is downloaded from its official GitHub page into a new folder only
-   administrators can change. The script checks the file's SHA-256 fingerprint against the one stored in the script,
-   keeps the file locked until the installer finishes, and refuses to run a file that doesn't match.
+2. **RustDesk** (the pinned version), if it isn't installed yet, is downloaded from its official GitHub page into a
+   new folder only administrators can change. The script checks the file's SHA-256 fingerprint against the one
+   stored in the script, keeps the file locked until the installer finishes, and refuses to run a file that doesn't
+   match. An existing RustDesk is kept as it is, whatever its version. Either way, RustDesk then stops using its
+   public ID and relay servers.
 3. **The firewall:** RustDesk's Allow rules are limited to the Tailscale adapter.
 4. **RustDesk's settings:** the same as the manual table, except the password and two-factor. Direct IP access
    stays **off** for now, because there's no controller to whitelist yet.
@@ -210,9 +217,13 @@ address. Then, in the same admin PowerShell window, run the script with it in pl
 ```
 
 This turns on direct IP access with only that address on RustDesk's whitelist. For more than one controller,
-separate the addresses with commas: `-ControllerIp 100.64.0.11,100.64.0.12`. Later runs without `-ControllerIp`
-keep the controller addresses already on the whitelist and drop anything that isn't a single Tailscale address, such
-as a range or this PC's own address. If no valid address is left, direct IP access is turned off instead.
+separate the addresses with commas: `-ControllerIp 100.64.0.11,100.64.0.12`.
+
+Later runs without `-ControllerIp` keep the controller addresses already on the whitelist. They don't keep anything
+that isn't a single Tailscale address, such as a range or this PC's own address: the script names those entries.
+If valid addresses are left, the whitelist is set to just those. If none are left, direct IP access is turned off
+and the old entries stay in RustDesk's whitelist, so the check at the end fails them. Run the script again with
+`-ControllerIp` and the controller's address to replace them.
 
 Then go to the controller to [connect](controller-windows.md#3-connect).
 
@@ -243,11 +254,18 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 | "cannot be loaded ... not digitally signed" | The files still carry the downloaded-from-the-internet mark. | Run the `Unblock-File` command in step 2.3. |
 | "... contains a #requires statement for running as Administrator" | PowerShell isn't running as administrator. | Close it and open it again with **Run as administrator**. |
 | "winget is missing" | Older Windows without winget. | Install Tailscale from [tailscale.com/download](https://tailscale.com/download), then run the script again. |
-| "Not a Tailscale address" | An address given to `-ControllerIp` doesn't start with `100.`. | Copy the controller's address from the Tailscale admin console. |
+| "Not a Tailscale address" | An address given to `-ControllerIp` isn't a Tailscale address (`100.64.x.x` to `100.127.x.x`). | Copy the controller's address from the Tailscale admin console. |
 | "... is this PC's own address" | You gave the host's address instead of the controller's. | Use the controller's `100.x` address. |
 | "The '<' operator is reserved" | Angle brackets were left in a command. | Type the real value without `<` and `>`. |
 | "The RustDesk service didn't start within a minute" | RustDesk installed, but its background service didn't start. | Restart the PC and run the script again. |
 | "RustDesk didn't take the setting ..." | RustDesk refused a setting, usually because its service isn't running. | Restart the PC and run the script again. |
+| "RustDesk couldn't read the setting ..." | RustDesk's command line failed, usually because its service isn't running. | Restart the PC and run the script again. |
+| "The download's SHA-256 doesn't match the pinned one" | The file from GitHub isn't the one this repo was tested with. Nothing was installed. | Don't install RustDesk by hand from that download. Try again later, and if it keeps happening, [open an issue](https://github.com/stunnas/tailnet-desk/issues). |
+| "No network adapter named 'Tailscale'" | Tailscale isn't installed, or its adapter has another name. | Reinstall Tailscale. If `Get-NetAdapter` shows it under another name, use the manual firewall commands with that name. |
+| "No RustDesk firewall rules found" | RustDesk's installer didn't create its rules. | Reinstall RustDesk ([manual step 2](#2-rustdesk)), choosing **Install**. |
+| "RustDesk did not finish installing within a minute" | The installer ran but RustDesk isn't in Program Files. | Restart the PC and run the script again. |
+| "... isn't owned by Administrators" or "... is a link to another folder" | The download folder under ProgramData was made by something else. | Delete the `tailnet-desk` folder in `C:\ProgramData` and run the script again. |
+| "powercfg failed" | Windows refused the sleep setting. | Set sleep by hand ([manual step 5](#5-never-sleep-while-plugged-in)), then run the script with `-KeepSleep`. |
 
 ### FAIL lines from Test-Host.ps1
 
@@ -256,14 +274,15 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 | Tailscale is signed in | Click the Tailscale icon by the clock and choose **Log in**. |
 | Network adapter 'Tailscale' exists | Reinstall Tailscale. If `Get-NetAdapter` shows it under another name, use that name in the manual firewall commands. |
 | RustDesk is installed / RustDesk service is running | Reinstall RustDesk ([manual step 2](#2-rustdesk)), choosing **Install**. A stopped service: restart the PC. |
-| Given controller address ... / Whitelist entry ... is one Tailscale address | Replace it with the controller's single `100.x` address, no ranges. |
+| Given controller address ... / Whitelist entry ... is one Tailscale address | Replace it with the controller's single `100.x` address, no ranges: run `Install-Host.ps1 -ControllerIp` with it, or edit the whitelist in RustDesk. This fails even while direct IP access is off, so turning it on later can't bring the entry back. |
 | Whitelist doesn't include this PC's own address | Remove the host's own `100.x` address from the whitelist: only controllers belong there. |
 | Whitelist is not empty while direct IP access is on | Add the controller's address to the whitelist, or turn off direct IP access. |
 | RustDesk setting ... | That setting differs from [step 4's table](#4-rustdesk-security-settings). Fix it in RustDesk, or run `Install-Host.ps1` again. |
 | RustDesk listens on TCP 21118 | Direct IP access is on but nothing listens: restart the PC. |
 | Windows Firewall is on for the ... profile | Turn Windows Firewall back on for that profile (Windows Security → Firewall & network protection). |
+| Windows Firewall profiles were read | Windows returned no firewall profiles. Run the script again as administrator; if it still fails, check by hand with manual firewall command 6. |
 | RustDesk firewall rules exist | Reinstall RustDesk; its installer creates them. |
-| Rule '...' only on Tailscale | Usually after a RustDesk update. Run [manual firewall commands 3 and 4](#3-firewall-let-rustdesk-answer-only-through-tailscale) again, or `Install-Host.ps1`. If the rule has another name, the manual commands won't find it: run `Install-Host.ps1`, or limit it to Tailscale in Windows Defender Firewall → Advanced settings, as for a port rule. |
+| Rule '...' only on Tailscale | Usually after a RustDesk update. Run [manual firewall commands 3 and 4](#3-firewall-let-rustdesk-answer-only-through-tailscale) again, or `Install-Host.ps1`. If the rule has another name, the manual commands won't find it: run `Install-Host.ps1`, or limit it to Tailscale in Windows Defender Firewall → Advanced settings, as for a port rule. If the rule comes from Group Policy (a work or school PC), only that policy's owner can change it. |
 | Windows Firewall blocks unasked-for connections on the ... profile | Set **Inbound connections** back to **Block (default)** for that profile in Windows Defender Firewall → Advanced settings → Windows Defender Firewall Properties. |
 | Port rule: ... | A rule lets any program in on port 21118 (or on all ports) from every network. Find it in Windows Defender Firewall → Advanced settings → Inbound Rules, and delete it or limit it to Tailscale. |
 

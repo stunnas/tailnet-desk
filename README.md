@@ -57,7 +57,7 @@ controllers locked, and don't let RustDesk remember the host's password on them
 | [`Install-Host.ps1`](scripts/windows/Install-Host.ps1) | Windows host, as administrator | Installs Tailscale and RustDesk, limits the firewall, sets RustDesk's security settings, stops sleep while plugged in, then checks the result. Never sets or shows a password. |
 | [`Test-Host.ps1`](scripts/windows/Test-Host.ps1) | Windows host, as administrator | Checks the host's setup. Changes nothing. |
 | [`Test-FromController.ps1`](scripts/windows/Test-FromController.ps1) | Windows controller | Checks the host answers over Tailscale and not over the home network. Changes nothing. |
-| [`Undo-HostFirewall.ps1`](scripts/windows/Undo-HostFirewall.ps1) | Windows host, as administrator | Puts RustDesk's firewall rules back on every network adapter. |
+| [`Undo-HostFirewall.ps1`](scripts/windows/Undo-HostFirewall.ps1) | Windows host, as administrator | Puts RustDesk's Allow rules back on every network adapter. Edge traversal stays Block. |
 
 The scripts install pinned versions and check RustDesk's SHA-256 fingerprint before running it. Both pins are set in
 one place, `Setting` at the top of [`TailnetDesk.psm1`](scripts/windows/TailnetDesk.psm1): open it and read the
@@ -69,16 +69,19 @@ the script; the manual path installs Tailscale's current release, and Tailscale 
 | Folder | Holds |
 |---|---|
 | `docs/` | The guides, the glossary and the screenshot rules |
-| `scripts/windows/` | The Windows scripts and their shared module (PowerShell files use PowerShell's Verb-Noun names) |
+| `scripts/windows/` | The Windows scripts and their shared module, named in PowerShell's Verb-Noun style |
 | `tests/` | Pester tests for the Windows module, bats tests for the repo checks, and planted test data |
-| `tools/` | The repo's own checks: private data, links, and the CI module installer |
+| `tools/` | The repo's own checks (private data, links) and the CI module installer, named in kebab-case |
 
 ## Status
 
-Phase 1 (Windows) is being tested. The manual steps in the Windows guides were followed on two PCs with RustDesk
-1.5.3. The scripts' checks (addresses, RustDesk settings, firewall rule results) and the installer's fingerprint
-check are tested automatically; the steps that change Windows are not, and the scripts **have not yet been run on a
-real Windows PC**. Until they have, follow the guides' manual path.
+Phase 1 (Windows) is being tested.
+
+| Part | Tested how |
+|---|---|
+| Manual steps in the Windows guides | Followed on two PCs with RustDesk 1.5.3, except two firewall commands added since: host manual step 3, commands 3 (edge traversal) and 6 (firewall profiles). Those haven't been followed on a real PC yet. |
+| The scripts' checks and steps | Tested automatically, with the Windows commands they call replaced by stand-ins (mocks). |
+| The scripts on a real PC | **Not yet run on a real Windows PC.** Until they have been, follow the guides' manual path. |
 
 ## License
 

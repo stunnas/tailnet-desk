@@ -17,6 +17,9 @@ is about, and save as PNG.
 
 ## Shot list: Windows
 
+None are taken yet. The three shots of script output (`install-host-output.png`, `test-host-output.png` and
+`test-from-controller-output.png`) wait until the scripts have run on a real PC.
+
 | File | Shows | Guide and step |
 |---|---|---|
 | `tailscale-tray-login.png` | The Tailscale tray icon menu with **Log in** | Host manual 1, controller 1 |
