@@ -313,11 +313,13 @@ td_pf_token_to_release() {
   printf '%s\n' "$token"
 }
 
-# td_pf_token_to_release for the token file at $1, in boot $2. A missing or empty file means nothing was saved. The file
-# is read on its own first: under set -o pipefail a failed read inside the pipeline would look like "can't release".
+# td_pf_token_to_release for the token file at $1, in boot $2. A missing or empty file means nothing was saved; a file
+# that exists but can't be read returns 3, like a token that can't be released. The file is read on its own first:
+# under set -o pipefail a failed read inside the pipeline would look like "can't release".
 td_pf_token_to_release_from_file() {
   local saved
-  saved=$(cat "$1" 2> /dev/null || true)
+  [ -e "$1" ] || return 0
+  saved=$(cat "$1" 2> /dev/null) || return 3
   printf '%s' "$saved" | td_pf_token_to_release "$2"
 }
 

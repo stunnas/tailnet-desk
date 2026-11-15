@@ -297,6 +297,17 @@ STUB
   [ "$output" = 1001 ]
   td td_pf_token_to_release_from_file "$BATS_TEST_TMPDIR/token" 222
   [ "$status" -eq 3 ]
+  [ -z "$output" ]
+}
+
+@test "td_pf_token_to_release_from_file says it can't release when the token file can't be read" {
+  [ "$(id -u)" -ne 0 ] || skip 'root can read any file'
+  printf '1001 111\n' > "$BATS_TEST_TMPDIR/token"
+  chmod 000 "$BATS_TEST_TMPDIR/token"
+  td td_pf_token_to_release_from_file "$BATS_TEST_TMPDIR/token" 111
+  chmod 600 "$BATS_TEST_TMPDIR/token"
+  [ "$status" -eq 3 ]
+  [ -z "$output" ]
 }
 
 @test "td_pf_token_to_release releases only this boot's token, and says when it can't" {
