@@ -107,12 +107,14 @@ if ($KeepSleep) {
 }
 
 Write-Step 'Step 6 of 6: Check'
-& (Join-Path $PSScriptRoot 'Test-Host.ps1') -ControllerIp $controllers
+# Only addresses given on this run are passed on; otherwise the check judges the whitelist on its own.
+& (Join-Path $PSScriptRoot 'Test-Host.ps1') -ControllerIp $given
 $checksPassed = ($LASTEXITCODE -eq 0)
 
 Write-Host ''
 Write-Host 'Still to do by hand, in RustDesk on this PC (Settings > Security > Unlock security settings):' -ForegroundColor Cyan
-Write-Host '  1. Password: choose "Use permanent password", then "Set permanent password".'
+Write-Host '  1. Password: if you have not set one yet, click "Set permanent password" (the script already chose'
+Write-Host '     "Use permanent password", so RustDesk''s one-time password no longer works).'
 Write-Host '     Use a random 20+ character password from your password manager. Never reuse it.'
 Write-Host '  2. Two-factor authentication: turn it on and scan the QR code with your authenticator app.'
 Write-Host '     Never photograph or share the QR code: it is the secret.'
