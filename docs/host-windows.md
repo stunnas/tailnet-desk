@@ -142,9 +142,9 @@ Then [check the host](#check-the-host) and go to the controller to [connect](con
 
 ## Script path (not yet tested on a real PC)
 
-> **Not yet run on a real Windows PC.** The script is tested automatically, but with the Windows commands it calls
-> replaced by stand-ins. Until it has been run on a real host, use the manual path above. See the
-> [README's Status](../README.md#status).
+> **Not yet run on a real Windows PC.** Most of the functions the script uses are tested automatically, with the
+> Windows commands they call replaced by stand-ins, but the script itself isn't. Until it has been run on a real
+> host, use the manual path above. See the [README's Status](../README.md#status).
 
 The script does the manual path's steps except the ones that need you: signing in to Tailscale, turning off key
 expiry, choosing the password and scanning the two-factor QR code. It's safe to run more than once: each run skips
@@ -265,6 +265,14 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 | "No RustDesk firewall rules found" | RustDesk's installer didn't create its rules. | Reinstall RustDesk ([manual step 2](#2-rustdesk)), choosing **Install**. |
 | "RustDesk did not finish installing within a minute" | The installer ran but RustDesk isn't in Program Files. | Restart the PC and run the script again. |
 | "... isn't owned by Administrators" or "... is a link to another folder" | The download folder under ProgramData was made by something else. | Delete the `tailnet-desk` folder in `C:\ProgramData` and run the script again. |
+| "winget couldn't install Tailscale" | winget failed to install the pinned version. | Install Tailscale from [tailscale.com/download](https://tailscale.com/download), then run the script again. |
+| "The RustDesk installer failed" | RustDesk's installer stopped with an error. | Restart the PC and run the script again. If it fails again, use the [manual path](#2-rustdesk). |
+| "Release ... has no file named ..." or "... isn't on github.com/rustdesk/rustdesk" or "GitHub's SHA-256 ... differs" | GitHub's release doesn't match what this repo pins. Nothing was downloaded. | Don't install by hand from that release. [Open an issue](https://github.com/stunnas/tailnet-desk/issues). |
+| "Couldn't restrict the permissions" or "... wasn't empty after it was created" | The private download folder couldn't be made safe. Nothing was installed. | Delete the `tailnet-desk` folder in `C:\ProgramData` and run the script again. |
+| "Couldn't delete the download folder ..." (a warning) | RustDesk installed, but its installer copy is left in an admin-only folder. | Delete the folder it names, under `C:\ProgramData\tailnet-desk`, by hand. |
+| "Can't read the ProgramData folder" or "Can't tell the system drive" | The registry holds an unusual ProgramData location. Nothing was installed. | Use the [manual path](#2-rustdesk) for RustDesk, and [open an issue](https://github.com/stunnas/tailnet-desk/issues). |
+| "No RustDesk firewall rules found, so there was nothing to undo" | `Undo-HostFirewall.ps1` found no RustDesk rules. | Nothing to do. If RustDesk should be installed, reinstall it ([manual step 2](#2-rustdesk)). |
+| "Tailscale is installed but not signed in (or not running)" | Tailscale gave this PC no address. | Click the Tailscale icon by the clock and choose **Log in**. If it says it's stopped, restart the PC. Then run the script again. |
 | "powercfg failed" | Windows refused the sleep setting. | Set sleep by hand ([manual step 5](#5-never-sleep-while-plugged-in)), then run the script with `-KeepSleep`. |
 
 ### FAIL lines from Test-Host.ps1

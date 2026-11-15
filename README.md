@@ -79,8 +79,9 @@ Phase 1 (Windows) is being tested.
 
 | Part | Tested how |
 |---|---|
-| Manual steps in the Windows guides | Followed on two PCs with RustDesk 1.5.3, except two firewall commands added since: host manual step 3, commands 3 (edge traversal) and 6 (firewall profiles). Those haven't been followed on a real PC yet. |
-| The scripts' checks and steps | Tested automatically, with the Windows commands they call replaced by stand-ins (mocks). |
+| Manual steps in the Windows guides | Followed on two PCs with RustDesk 1.5.3. Not confirmed on a real PC yet: host manual step 3, command 3 (edge traversal) and command 6 as now written (firewall profiles as Windows applies them). |
+| The shared module (`TailnetDesk.psm1`) | Its checks are tested automatically, and so are most of its steps, with the Windows commands they call replaced by stand-ins (mocks). The firewall reads that pass rules from one Windows command to the next aren't. |
+| The four scripts themselves | Not tested automatically: their step order and how they combine the module's results are checked only by running them. |
 | The scripts on a real PC | **Not yet run on a real Windows PC.** Until they have been, follow the guides' manual path. |
 
 ## License
