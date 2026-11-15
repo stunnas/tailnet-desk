@@ -123,8 +123,8 @@ Then [check the host](#check-the-host) and go to the controller to connect.
 
 > **Partly tested.** The shared library's checks that don't touch the system are tested automatically on macOS's own
 > shell. On a real Mac that was already a host, `install-host.sh` (with `--keep-sleep`), `test-host.sh`,
-> `enable-pf.sh` and `undo-pf.sh` ran and worked with the current scripts, including `enable-pf.sh` twice before the
-> undo. The firewall check passed after a restart with an earlier version of the pf step; the current one's restart
+> `enable-pf.sh` and `undo-pf.sh` ran and worked, including `enable-pf.sh` twice before the undo (only the undo's
+> token-file read changed after that run). The firewall check passed after a restart with an earlier version of the pf step; the current one's restart
 > handling is tested only against stand-ins so far. Not yet run: a fresh install on a Mac without RustDesk, the sleep
 > step, and the undo's path for a pf reference it can't release. For a fresh install, the manual path above is the
 > tested route. See the [README's Status](../README.md#status).
