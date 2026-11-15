@@ -55,6 +55,31 @@ teardown() {
   [[ "$output" == *"outside the repository"* ]]
 }
 
+@test "fails a link through a symlinked folder partway along the path" {
+  mkdir -p "$TMP/elsewhere" && printf '# Far\n' > "$TMP/elsewhere/far.md"
+  ln -s ../../elsewhere docs/via
+  printf '%s\n' '[x](via/far.md)' > docs/guide.md
+  run "$CHECK" docs/guide.md
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"outside the repository"* ]]
+}
+
+@test "numbers repeated headings the way GitHub does" {
+  printf '%s\n' '# Steps' '## Check' '## Check' '[first](#check) [second](#check-1)' > docs/guide.md
+  run "$CHECK" docs/guide.md
+  [ "$status" -eq 0 ]
+  printf '%s\n' '# Steps' '## Check' '[third](#check-2)' > docs/guide.md
+  run "$CHECK" docs/guide.md
+  [ "$status" -eq 1 ]
+}
+
+@test "decodes %20 in a link to a file name with a space" {
+  printf '# Spaced\n' > 'docs/two words.md'
+  printf '%s\n' '[x](two%20words.md)' > docs/guide.md
+  run "$CHECK" docs/guide.md
+  [ "$status" -eq 0 ]
+}
+
 @test "fails when a named file doesn't exist" {
   run "$CHECK" docs/missing.md
   [ "$status" -eq 2 ]

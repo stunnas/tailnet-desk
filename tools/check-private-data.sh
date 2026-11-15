@@ -39,10 +39,11 @@ fi
 
 status=0
 for f in "${files[@]}"; do
-  # Skip symlinks (they could point outside the repo), deleted files and binary files such as screenshots.
+  # Skip symlinks (they could point outside the repo), deleted files and binary files such as screenshots. A file is
+  # binary when it has a NUL byte; that's checked byte by byte, so the locale can't make a UTF-8 guide count as binary.
   [ -L "$f" ] && continue
   [ -f "$f" ] || continue
-  if [ -s "$f" ] && ! grep -Iq . "$f" 2>/dev/null; then continue; fi
+  if ! perl -0777 -ne 'exit(/\0/ ? 1 : 0)' "$f"; then continue; fi
 
   if ! perl -ne '
     BEGIN {

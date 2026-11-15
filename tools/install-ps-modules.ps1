@@ -6,6 +6,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 3.0
 
 $modules = @(
+    # Pester 5.7.1 was released 2025-01-08; PSScriptAnalyzer 1.25.0 on 2026-03-20.
     @{ Name = 'Pester'; Version = '5.7.1'; Sha256 = '4a27904c6814a5fbe4758f8e49861f6a1994aee77b71165a5c43c0371ba6c580' }
     @{ Name = 'PSScriptAnalyzer'; Version = '1.25.0'; Sha256 = '14e634c828eb98efb9f40b2918ba90f139ed5eccdf663a2a747736d996995d60' }
 )

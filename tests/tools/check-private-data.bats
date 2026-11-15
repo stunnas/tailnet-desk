@@ -74,6 +74,27 @@ check_text() {
   done
 }
 
+@test "passes a five-part version number, but fails a four-part one, which reads as an address" {
+  check_text 'Build 1.2.3.4.5'
+  [ "$status" -eq 0 ]
+  check_text 'Build 1.2.3.4'
+  [ "$status" -eq 1 ]
+}
+
+@test "scans UTF-8 text with non-ASCII characters, in the C and UTF-8 locales" {
+  printf 'Settings \342\206\222 Security, host 100.99.88.77\n' > "$TMP/arrow.md"
+  LC_ALL=C run "$CHECK" "$TMP/arrow.md"
+  [ "$status" -eq 1 ]
+  LC_ALL=C.UTF-8 run "$CHECK" "$TMP/arrow.md"
+  [ "$status" -eq 1 ]
+}
+
+@test "scans text that isn't valid UTF-8" {
+  printf 'caf\351, host 100.99.88.77\n' > "$TMP/latin1.md"
+  LC_ALL=C.UTF-8 run "$CHECK" "$TMP/latin1.md"
+  [ "$status" -eq 1 ]
+}
+
 @test "passes 8- and 11-digit numbers" {
   check_text 'Numbers 12345678 and 12345678901'
   [ "$status" -eq 0 ]
