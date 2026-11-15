@@ -116,14 +116,16 @@ else
 fi
 
 step 'Step 6 of 6: Check'
+# Only addresses given on this run are passed on; otherwise the check judges the whitelist on its own.
 check_args=()
-[ "${#controller_args[@]}" -eq 0 ] || check_args=(--controller-ip "$(IFS=,; echo "${controller_args[*]}")")
+[ -z "$(td_address_list "$given")" ] || check_args=(--controller-ip "$(IFS=,; echo "${controller_args[*]}")")
 checks=0
 "$here/test-host.sh" ${check_args[@]+"${check_args[@]}"} || checks=$?
 
 echo
 echo 'Still to do by hand, in RustDesk on this Mac (Settings > Security > Unlock security settings):'
-echo '  1. Password: choose "Use permanent password", then "Set permanent password".'
+echo '  1. Password: if you have not set one yet, click "Set permanent password" (the script already chose'
+echo '     "Use permanent password", so RustDesk'"'"'s one-time password no longer works).'
 echo '     Use a random 20+ character password from your password manager. Never reuse it.'
 echo '  2. Two-factor authentication: turn it on and scan the QR code with your authenticator app.'
 echo '     Never photograph or share the QR code: it is the secret.'
