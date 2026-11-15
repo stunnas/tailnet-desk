@@ -760,7 +760,21 @@ Describe 'Get-PortAllowRule' {
             'udp'         = [pscustomobject]@{ Name = 'udp'; Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound'; Program = 'Any' }
         }
         Mock -ModuleName TailnetDesk Get-RuleOfFilter { $script:rules[$Filter.Rule] }
-        Mock -ModuleName TailnetDesk Get-ApplicationFilterOfRule { [pscustomobject]@{ Program = $Rule.Program } }
+        Mock -ModuleName TailnetDesk Get-ApplicationFilterOfRule { [pscustomobject]@{ Program = $Rule.Program; Package = '' } }
+        Mock -ModuleName TailnetDesk Get-AddressFilterOfRule { [pscustomobject]@{ LocalAddress = @('Any'); RemoteAddress = @('Any') } }
+    }
+    It 'leaves out Tailscale''s own rule (only this PC''s Tailscale addresses) and Windows app rules (with an owner)' {
+        Mock -ModuleName TailnetDesk Get-NetFirewallPortFilter { @(
+                [pscustomobject]@{ Protocol = 'Any'; LocalPort = @('Any'); Rule = 'open-any' }
+                [pscustomobject]@{ Protocol = 'Any'; LocalPort = @('Any'); Rule = 'Tailscale-In' }
+                [pscustomobject]@{ Protocol = 'Any'; LocalPort = @('Any'); Rule = 'Xbox' }) }
+        $script:rules['Tailscale-In'] = [pscustomobject]@{ Name = 'Tailscale-In'; Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound'; Program = 'Any' }
+        $script:rules['Xbox'] = [pscustomobject]@{ Name = 'Xbox'; Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound'; Program = 'Any'; Owner = 'S-1-5-21-1-2-3-1001' }
+        Mock -ModuleName TailnetDesk Get-AddressFilterOfRule {
+            if ($Rule.Name -eq 'Tailscale-In') { [pscustomobject]@{ LocalAddress = @('100.64.0.10'); RemoteAddress = @('Any') } }
+            else { [pscustomobject]@{ LocalAddress = @('Any'); RemoteAddress = @('Any') } }
+        }
+        (@(Get-PortAllowRule).Name -join ',') | Should -Be 'open-any'
     }
     It 'returns only enabled inbound Allow rules for any program that cover the port, once each' {
         (@(Get-PortAllowRule).Name -join ',') | Should -Be 'open-any'
@@ -774,6 +788,41 @@ Describe 'Get-PortAllowRule' {
     It 'never looks up the rule of a filter that does not cover the port' {
         $null = Get-PortAllowRule
         Should -Invoke -ModuleName TailnetDesk Get-RuleOfFilter -Times 0 -ParameterFilter { $Filter.Rule -eq 'udp' }
+    }
+}
+
+Describe 'Test-TailscaleAddressSpec' {
+    # Addresses below are examples or made up. check-private-data: allow
+    It 'accepts <_>' -ForEach @('100.64.0.10', '100.64.0.0/10', 'fd7a:115c:a1e0::1', 'fd7a:115c:a1e0::/48', 'FD7A:115C:A1E0:AB12::/64') { # check-private-data: allow
+        Test-TailscaleAddressSpec -Spec $_ | Should -BeTrue
+    }
+    It 'refuses <_>' -ForEach @('Any', '', '192.168.0.10', '100.64.0.0/9', 'fd7a:115c:a1e1::1', 'fd7a:115c:a1e0::/32', 'LocalSubnet') { # check-private-data: allow
+        Test-TailscaleAddressSpec -Spec $_ | Should -BeFalse
+    }
+}
+
+Describe 'Test-OpenToAnyProgram' {
+    BeforeAll {
+        $script:anyApp = [pscustomobject]@{ Program = 'Any'; Package = '' }
+        $script:anyAddr = [pscustomobject]@{ LocalAddress = @('Any'); RemoteAddress = @('Any') }
+    }
+    It 'flags a rule open to any program on any address' {
+        Test-OpenToAnyProgram -Rule ([pscustomobject]@{ Owner = '' }) -ApplicationFilter $script:anyApp -AddressFilter $script:anyAddr | Should -BeTrue
+    }
+    It 'leaves out a rule with an owner, as Windows'' packaged apps have' {
+        Test-OpenToAnyProgram -Rule ([pscustomobject]@{ Owner = 'S-1-5-21-1-2-3-1001' }) -ApplicationFilter $script:anyApp -AddressFilter $script:anyAddr | Should -BeFalse
+    }
+    It 'leaves out a rule for one program or one app package' {
+        Test-OpenToAnyProgram -Rule ([pscustomobject]@{ Owner = '' }) -ApplicationFilter ([pscustomobject]@{ Program = 'C:\Tools\game.exe'; Package = '' }) -AddressFilter $script:anyAddr | Should -BeFalse
+        Test-OpenToAnyProgram -Rule ([pscustomobject]@{ Owner = '' }) -ApplicationFilter ([pscustomobject]@{ Program = 'Any'; Package = 'S-1-15-2-1' }) -AddressFilter $script:anyAddr | Should -BeFalse
+    }
+    It 'leaves out a rule limited to this PC''s Tailscale addresses, like Tailscale-In' {
+        $ts = [pscustomobject]@{ LocalAddress = @('100.64.0.10', 'fd7a:115c:a1e0::1'); RemoteAddress = @('Any') } # check-private-data: allow
+        Test-OpenToAnyProgram -Rule ([pscustomobject]@{ Owner = '' }) -ApplicationFilter $script:anyApp -AddressFilter $ts | Should -BeFalse
+    }
+    It 'flags a rule whose local addresses include anything besides Tailscale' {
+        $mixed = [pscustomobject]@{ LocalAddress = @('100.64.0.10', '192.168.0.10'); RemoteAddress = @('Any') }
+        Test-OpenToAnyProgram -Rule ([pscustomobject]@{ Owner = '' }) -ApplicationFilter $script:anyApp -AddressFilter $mixed | Should -BeTrue
     }
 }
 

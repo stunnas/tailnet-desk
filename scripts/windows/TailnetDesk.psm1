@@ -363,8 +363,64 @@ function Test-ApplicationFilter {
     [OutputType([bool])]
     param([AllowNull()]$Filter, [Parameter(Mandatory)][ValidateSet('RustDesk', 'Any')][string]$Program)
     $have = if ($null -eq $Filter) { '' } else { "$($Filter.Program)" }
-    if ($Program -eq 'Any') { return ($have -eq 'Any') }
+    if ($Program -eq 'Any') {
+        # A rule for one Windows app package names it under Package and only lets that app in.
+        $package = Get-OptionalProperty -InputObject $Filter -Name Package
+        return ($have -eq 'Any' -and ($package -eq '' -or $package -eq 'Any'))
+    }
     return ($have -like '*\rustdesk.exe')
+}
+
+function Get-OptionalProperty {
+    <# .SYNOPSIS A property's value as text, or '' when the object or the property is missing (strict mode would throw). #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()]$InputObject, [Parameter(Mandatory)][string]$Name)
+    if ($null -eq $InputObject) { return '' }
+    $p = $InputObject.PSObject.Properties[$Name]
+    if ($null -eq $p -or $null -eq $p.Value) { return '' }
+    return "$($p.Value)"
+}
+
+function Test-TailscaleAddressSpec {
+    <#
+    .SYNOPSIS
+    True when a firewall address entry only covers Tailscale: one Tailscale IPv4 address, Tailscale's whole range
+    (100.64.0.0/10), or an IPv6 address or range inside fd7a:115c:a1e0::/48. 'Any' and everything else is false. # check-private-data: allow
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([AllowEmptyString()][string]$Spec)
+    $t = $Spec.Trim()
+    if (Test-TailscaleIPv4 -Address $t) { return $true }
+    if ($t -eq '100.64.0.0/10' -or $t -eq '100.64.0.0/255.192.0.0') { return $true } # check-private-data: allow
+    # IPv6 inside fd7a:115c:a1e0::/48, alone or as a range of /48 or longer. check-private-data: allow
+    if ($t -match '^fd7a:115c:a1e0:[0-9a-f:]*(/(4[89]|[5-9][0-9]|1[01][0-9]|12[0-8]))?\z') { return $true } # check-private-data: allow
+    return $false
+}
+
+function Test-OpenToAnyProgram {
+    <#
+    .SYNOPSIS
+    True when an inbound rule could let any program in from any network: no owner, no program or app package named,
+    and not limited to this PC's Tailscale addresses. Takes the rule and its application and address filters, as
+    Get-NetFirewallRule and its filter commands return them.
+    .DESCRIPTION
+    Rules with an Owner (a user's SID) belong to one user's packaged Windows app, such as Xbox or Start, and Windows
+    applies them only to that app, never to an ordinary program like RustDesk. Tailscale's own rule (Tailscale-In)
+    allows everything, but only to this PC's Tailscale addresses, so it can't open RustDesk to other networks.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)]$Rule, [AllowNull()]$ApplicationFilter, [AllowNull()]$AddressFilter)
+    if ((Get-OptionalProperty -InputObject $Rule -Name Owner) -ne '') { return $false }
+    if (-not (Test-ApplicationFilter -Filter $ApplicationFilter -Program Any)) { return $false }
+    $local = @()
+    if ($null -ne $AddressFilter) { $local = @(@($AddressFilter.LocalAddress) | ForEach-Object { "$_" } | Where-Object { $_ -ne '' }) }
+    if ($local.Count -gt 0 -and @($local | Where-Object { -not (Test-TailscaleAddressSpec -Spec $_) }).Count -eq 0) {
+        return $false
+    }
+    return $true
 }
 
 function Test-HomeIPv4 {
@@ -637,10 +693,11 @@ function Get-RustDeskFirewallRule {
 function Get-PortAllowRule {
     <#
     .SYNOPSIS
-    Enabled inbound Allow rules that let any program in on the direct port: no program named, and a port filter that
-    covers it (exactly, as a range, or Any) for TCP or any protocol. Such a rule would get around the adapter limit
-    unless it is limited to Tailscale too. Rules for one named program (a browser, a game) are left out: they only let
-    that program in, and RustDesk's own rules are checked separately.
+    Enabled inbound Allow rules that let any program in on the direct port: a port filter that covers it (exactly, as
+    a range, or Any) for TCP or any protocol, and open to any program (Test-OpenToAnyProgram). Such a rule would get
+    around the adapter limit unless it is limited to Tailscale too. Rules for one named program or app package (a
+    browser, a game, a Windows app) are left out: they only let that program in, and RustDesk's own rules are checked
+    separately.
     #>
     [CmdletBinding()]
     param([string]$PolicyStore = '')
@@ -649,8 +706,9 @@ function Get-PortAllowRule {
     foreach ($filter in @(Get-NetFirewallPortFilter @store -ErrorAction Stop)) {
         if (-not (Test-PortFilterMatch -Filter $filter)) { continue }
         foreach ($rule in @(Get-RuleOfFilter -Filter $filter)) {
-            if ((Test-AllowRule -Rule $rule -Direction Inbound) -and
-                (Test-ApplicationFilter -Filter (Get-ApplicationFilterOfRule -Rule $rule) -Program Any)) { $found += $rule }
+            if (-not (Test-AllowRule -Rule $rule -Direction Inbound)) { continue }
+            if (Test-OpenToAnyProgram -Rule $rule -ApplicationFilter (Get-ApplicationFilterOfRule -Rule $rule) `
+                    -AddressFilter (Get-AddressFilterOfRule -Rule $rule)) { $found += $rule }
         }
     }
     return @($found | Sort-Object -Property Name -Unique)
@@ -669,6 +727,13 @@ function Get-ApplicationFilterOfRule {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Rule)
     return ($Rule | Get-NetFirewallApplicationFilter -ErrorAction Stop)
+}
+
+function Get-AddressFilterOfRule {
+    <# .SYNOPSIS A firewall rule's address filter: which local and remote addresses it covers. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Rule)
+    return ($Rule | Get-NetFirewallAddressFilter -ErrorAction Stop)
 }
 
 function Get-InterfaceAliasOfRule {
