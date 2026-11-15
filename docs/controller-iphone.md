@@ -59,8 +59,8 @@ or [Mac](controller-mac.md#test-from-the-controller) controller guides), but the
 - **The Tailscale path works.** Connecting in step 3 showed the host's screen.
 - **Two-factor is required.** Connecting asked for a 6-digit code after the password.
 - **The whitelist refuses other devices.** Turn **Tailscale off** on the iPhone, stay on the same Wi-Fi as the host,
-  and connect to the host's **home address** (such as `192.168.0.10`). Expect "Your ip is blocked by the peer" (or no
-  answer at all with a firewall step on the host). If it asks for a password instead, the whitelist isn't on. Turn
+  and connect to the host's **home address** (such as `192.168.0.10`). Expect "Your ip is blocked by the peer", or "Failed to
+  connect" with a firewall step on the host. If it asks for a password instead, the whitelist isn't on. Turn
   Tailscale back on afterwards.
 
 ## When something goes wrong

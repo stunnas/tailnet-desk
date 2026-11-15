@@ -180,6 +180,11 @@ at all. It's a second lock next to the whitelist.
 The script keeps the rule after a restart and can undo it. It never edits Apple's `/etc/pf.conf`, and it never turns
 pf off for anything else that uses it.
 
+**The trade-off: while pf is on, macOS turns off iCloud Private Relay** (it reports "Some of your system settings
+prevent Private Relay from working"). Private Relay hides your IP address in Safari; RustDesk and Tailscale don't use
+it. The undo turns Private Relay back on. If you rely on Private Relay, skip this step: the whitelist, password and
+two-factor still protect RustDesk.
+
 ```bash
 ./enable-pf.sh
 ```
