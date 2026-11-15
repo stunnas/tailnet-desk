@@ -101,7 +101,7 @@ Write-Step 'Step 5 of 6: Sleep'
 if ($KeepSleep) {
     Write-Host 'Left unchanged (-KeepSleep).'
 } else {
-    & powercfg.exe /change standby-timeout-ac 0
+    & (Get-System32Exe -Name 'powercfg.exe') /change standby-timeout-ac 0
     if ($LASTEXITCODE -ne 0) { throw "powercfg failed (exit code $LASTEXITCODE)." }
     Write-Host 'This PC no longer sleeps while plugged in. (The screen can still turn off.)'
 }

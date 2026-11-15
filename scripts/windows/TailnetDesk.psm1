@@ -2,13 +2,15 @@
 # Written for Windows PowerShell 5.1 and PowerShell 7. Keep this file ASCII only: Windows PowerShell 5.1 reads
 # files without a byte order mark as the system code page, so other characters break.
 #
-# Sections: settings, checks (no system access; tests/windows covers them, plus the system functions with mocks),
+# Sections: settings, checks (no system access; tests/windows covers them, plus most system functions with mocks;
+# see the README's Status for what isn't),
 # system reads, and system changes. Each system change says what it changes. The caller's $ErrorActionPreference
 # doesn't reach a module, so system functions pass -ErrorAction Stop to every cmdlet whose failure matters.
 #
 # Threat model: the scripts run as administrator but trust the signed-in user's account and everything running as it.
 # They are run from the user's Downloads folder, so a program running as the user could change them anyway, and
-# winget is found through the user's PATH. The hardening below protects against mistakes and odd setups, not
+# winget is found through the user's PATH. Windows' own tools (icacls, powercfg) run from System32, found through
+# the registry. The hardening below protects against mistakes and odd setups, not
 # against such a program: system folders come from the machine registry rather than environment variables, and the
 # downloaded installer sits in an admin-only folder, locked from its hash check until it exits.
 
@@ -366,11 +368,17 @@ function Test-ApplicationFilter {
 }
 
 function Test-HomeIPv4 {
-    <# .SYNOPSIS True for one IPv4 address that isn't a Tailscale address: what a home network address looks like. #>
+    <#
+    .SYNOPSIS
+    True for one IPv4 address in a private home network range: 10.0.0.0/8, 172.16.0.0/12 or 192.168.0.0/16. Anything # check-private-data: allow
+    else (a Tailscale, loopback or public address) wouldn't test the host's home network path.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Address)
-    return ((Test-IPv4 -Address $Address) -and -not (Test-TailscaleIPv4 -Address $Address))
+    if (-not (Test-IPv4 -Address $Address)) { return $false }
+    $p = $Address.Split('.') | ForEach-Object { [int]$_ }
+    return ($p[0] -eq 10 -or ($p[0] -eq 172 -and $p[1] -ge 16 -and $p[1] -le 31) -or ($p[0] -eq 192 -and $p[1] -eq 168))
 }
 
 function Get-FirewallProfileFinding {
@@ -508,8 +516,24 @@ function Get-ProgramDataPath {
     param()
     $key = Get-Item -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' -ErrorAction Stop
     $raw = $key.GetValue('ProgramData', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-    $systemRoot = (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop).SystemRoot
-    return (Expand-SystemDrivePath -Value "$raw" -SystemRoot "$systemRoot")
+    return (Expand-SystemDrivePath -Value "$raw" -SystemRoot (Get-SystemRootPath))
+}
+
+function Get-SystemRootPath {
+    <# .SYNOPSIS The Windows folder (such as C:\WINDOWS), from the machine registry rather than an environment variable. #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return "$((Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop).SystemRoot)"
+}
+
+function Get-System32Exe {
+    <# .SYNOPSIS The full path of one of Windows' own programs in System32, so it is never found through PATH. #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Name)
+    # A plain string join: Join-Path would try to resolve the drive, which a test machine may not have.
+    return [IO.Path]::Combine((Get-SystemRootPath), 'System32', $Name)
 }
 
 function Get-RustDeskExe {
@@ -596,9 +620,10 @@ function Get-RustDeskFirewallRule {
         $rules += @(Get-NetFirewallRule -DisplayName $name @store -ErrorAction SilentlyContinue -ErrorVariable lookupError)
         Assert-OnlyNotFound -ErrorRecord $lookupError
     }
-    $rules += @(Get-NetFirewallApplicationFilter @store -ErrorAction Stop |
-        Where-Object { Test-ApplicationFilter -Filter $_ -Program RustDesk } |
-        Get-NetFirewallRule -ErrorAction Stop)
+    # Rules for RustDesk's program under any name, such as ones a RustDesk update renamed.
+    foreach ($filter in @(Get-NetFirewallApplicationFilter @store -ErrorAction Stop)) {
+        if (Test-ApplicationFilter -Filter $filter -Program RustDesk) { $rules += @(Get-RuleOfFilter -Filter $filter) }
+    }
     return @($rules | Where-Object { $_ -and (Test-AllowRule -Rule $_) } | Sort-Object -Property Name -Unique)
 }
 
@@ -613,12 +638,38 @@ function Get-PortAllowRule {
     [CmdletBinding()]
     param([string]$PolicyStore = '')
     $store = Get-StoreArg -PolicyStore $PolicyStore
-    return @(Get-NetFirewallPortFilter @store -ErrorAction Stop |
-        Where-Object { Test-PortFilterMatch -Filter $_ } |
-        Get-NetFirewallRule -ErrorAction Stop |
-        Where-Object { Test-AllowRule -Rule $_ -Direction Inbound } |
-        Where-Object { Test-ApplicationFilter -Filter ($_ | Get-NetFirewallApplicationFilter -ErrorAction Stop) -Program Any } |
-        Sort-Object -Property Name -Unique)
+    $found = @()
+    foreach ($filter in @(Get-NetFirewallPortFilter @store -ErrorAction Stop)) {
+        if (-not (Test-PortFilterMatch -Filter $filter)) { continue }
+        foreach ($rule in @(Get-RuleOfFilter -Filter $filter)) {
+            if ((Test-AllowRule -Rule $rule -Direction Inbound) -and
+                (Test-ApplicationFilter -Filter (Get-ApplicationFilterOfRule -Rule $rule) -Program Any)) { $found += $rule }
+        }
+    }
+    return @($found | Sort-Object -Property Name -Unique)
+}
+
+# Thin wrappers for the firewall's links between a rule and its filters, so tests can stand in for them on any system.
+function Get-RuleOfFilter {
+    <# .SYNOPSIS The firewall rule a port or application filter belongs to. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Filter)
+    return @($Filter | Get-NetFirewallRule -ErrorAction Stop)
+}
+
+function Get-ApplicationFilterOfRule {
+    <# .SYNOPSIS A firewall rule's application filter, which names its program or says Any. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Rule)
+    return ($Rule | Get-NetFirewallApplicationFilter -ErrorAction Stop)
+}
+
+function Get-InterfaceAliasOfRule {
+    <# .SYNOPSIS The network adapters a firewall rule applies to, such as Tailscale or Any. #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)]$Rule)
+    return @(($Rule | Get-NetFirewallInterfaceFilter -ErrorAction Stop).InterfaceAlias)
 }
 
 function Get-FirewallRuleState {
@@ -629,7 +680,7 @@ function Get-FirewallRuleState {
         [pscustomobject]@{
             DisplayName    = $r.DisplayName
             Direction      = "$($r.Direction)"
-            InterfaceAlias = @(($r | Get-NetFirewallInterfaceFilter -ErrorAction Stop).InterfaceAlias)
+            InterfaceAlias = @(Get-InterfaceAliasOfRule -Rule $r)
         }
     }
 }
@@ -672,12 +723,12 @@ function Invoke-Winget {
 }
 
 function Invoke-IcaclsTool {
-    <# .SYNOPSIS Runs icacls.exe with the arguments, hides its output, and returns its exit code. #>
+    <# .SYNOPSIS Runs icacls.exe with the arguments and returns its exit code and output. #>
     [CmdletBinding()]
-    [OutputType([int])]
+    [OutputType([pscustomobject])]
     param([Parameter(Mandatory)][string[]]$Argument)
-    & icacls.exe @Argument | Out-Null
-    return $LASTEXITCODE
+    $output = (& (Get-System32Exe -Name 'icacls.exe') @Argument 2>&1 | Out-String).Trim()
+    return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
 }
 
 function New-PrivateFolder {
@@ -707,8 +758,10 @@ function New-PrivateFolder {
             New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
         }
         # Remove inherited permissions; grant full control to Administrators and SYSTEM only.
-        $code = Invoke-IcaclsTool -Argument @($dir, '/inheritance:r', '/grant:r', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-18:(OI)(CI)F')
-        if ($code -ne 0) { throw "Couldn't restrict the permissions of $dir (icacls exit code $code)." }
+        $icacls = Invoke-IcaclsTool -Argument @($dir, '/inheritance:r', '/grant:r', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-18:(OI)(CI)F')
+        if ($icacls.ExitCode -ne 0) {
+            throw "Couldn't restrict the permissions of $dir (icacls exit code $($icacls.ExitCode)): $($icacls.Output)"
+        }
     }
     # Anything planted before the permissions were tightened would still belong to its maker.
     if (@(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop).Count -gt 0) { throw "$path wasn't empty after it was created. Stopping." }

@@ -27,6 +27,9 @@ BeforeAll {
     if (-not (Get-Command Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue)) {
         function global:Get-NetFirewallApplicationFilter { [CmdletBinding()] param($PolicyStore) throw 'stub' }
     }
+    if (-not (Get-Command Get-NetFirewallPortFilter -ErrorAction SilentlyContinue)) {
+        function global:Get-NetFirewallPortFilter { [CmdletBinding()] param($PolicyStore) throw 'stub' }
+    }
     if (-not (Get-Command Get-Acl -ErrorAction SilentlyContinue)) {
         function global:Get-Acl { [CmdletBinding()] param([string]$LiteralPath) throw 'stub' }
     }
@@ -444,6 +447,11 @@ Describe 'Set-RustDeskFirewallToTailscale' {
         Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @() }
         { Set-RustDeskFirewallToTailscale } | Should -Throw '*No RustDesk firewall rules found*'
     }
+    It 'changes nothing with -WhatIf' {
+        Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @([pscustomobject]@{ DisplayName = 'RustDesk Service'; Direction = 'Inbound'; EdgeTraversalPolicy = 'DeferToUser' }) }
+        Set-RustDeskFirewallToTailscale -WhatIf
+        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 0 -Exactly
+    }
     It 'switches a DeferToUser rule to Block and limits every rule to Tailscale' {
         Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @(
                 [pscustomobject]@{ DisplayName = 'RustDesk Service'; Direction = 'Inbound'; EdgeTraversalPolicy = 'DeferToUser' }
@@ -459,6 +467,11 @@ Describe 'Set-RustDeskFirewallToAny' {
     It 'throws when there are no rules, so the undo never reports a change it did not make' {
         Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @() }
         { Set-RustDeskFirewallToAny } | Should -Throw '*nothing to undo*'
+    }
+    It 'changes nothing with -WhatIf' {
+        Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @([pscustomobject]@{ DisplayName = 'rustdesk.exe'; Direction = 'Inbound' }) }
+        Set-RustDeskFirewallToAny -WhatIf
+        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 0 -Exactly
     }
     It 'puts every rule back on every adapter' {
         Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @([pscustomobject]@{ DisplayName = 'rustdesk.exe'; Direction = 'Inbound' }) }
@@ -585,8 +598,12 @@ Describe 'Test-ApplicationFilter' {
 }
 
 Describe 'Test-HomeIPv4' {
-    It 'accepts a home address' { Test-HomeIPv4 -Address '192.168.0.10' | Should -BeTrue }
-    It 'refuses a Tailscale address, a name and a typo: <_>' -ForEach @('100.64.0.10', 'myhost', '192.168.0') { # check-private-data: allow
+    # Range ends and public examples below are made up. check-private-data: allow
+    It 'accepts a private home address: <_>' -ForEach @('192.168.0.10', '10.0.0.1', '172.16.0.1', '172.31.255.254') { # check-private-data: allow
+        Test-HomeIPv4 -Address $_ | Should -BeTrue
+    }
+    It 'refuses anything that would not test the home network: <_>' -ForEach @(
+        '100.64.0.10', '127.0.0.1', '0.0.0.0', '8.8.8.8', '172.32.0.1', '172.15.0.1', '192.169.0.1', 'myhost', '192.168.0') { # check-private-data: allow
         Test-HomeIPv4 -Address $_ | Should -BeFalse
     }
 }
@@ -602,6 +619,15 @@ Describe 'Get-RustDeskFirewallRule' {
     It 'stops on any other lookup error, such as access denied' {
         Mock -ModuleName TailnetDesk Get-NetFirewallRule { Write-Error -Message 'Access denied' -Category PermissionDenied }
         { Get-RustDeskFirewallRule } | Should -Throw '*Access denied*'
+    }
+    It "finds RustDesk's rules under another name through their program, and only RustDesk's" {
+        Mock -ModuleName TailnetDesk Get-NetFirewallRule { Write-Error -Message 'No rule' -Category ObjectNotFound }
+        Mock -ModuleName TailnetDesk Get-NetFirewallApplicationFilter { @(
+                [pscustomobject]@{ Program = 'C:\Program Files\RustDesk\rustdesk.exe'; Rule = 'renamed' }
+                [pscustomobject]@{ Program = 'C:\Tools\browser.exe'; Rule = 'browser' }) }
+        Mock -ModuleName TailnetDesk Get-RuleOfFilter { [pscustomobject]@{ Name = $Filter.Rule; Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound' } }
+        (@(Get-RustDeskFirewallRule).Name -join ',') | Should -Be 'renamed'
+        Should -Invoke -ModuleName TailnetDesk Get-RuleOfFilter -Times 1 -Exactly
     }
     It 'keeps enabled Allow rules once each, and drops Block rules' {
         Mock -ModuleName TailnetDesk Get-NetFirewallRule { @(
@@ -622,11 +648,20 @@ Describe 'Get-ProgramFilesPath and Get-ProgramDataPath' {
         Get-ProgramFilesPath | Should -Be 'C:\Program Files'
     }
     It 'reads ProgramData unexpanded and fills in the drive from SystemRoot' {
+        # Answers like the registry: unexpanded only when asked for it, otherwise already filled in from the environment.
         Mock -ModuleName TailnetDesk Get-Item {
-            [pscustomobject]@{} | Add-Member -MemberType ScriptMethod -Name GetValue -Value { param($n, $d, $o) '%SystemDrive%\ProgramData' } -PassThru
+            [pscustomobject]@{} | Add-Member -MemberType ScriptMethod -Name GetValue -Value {
+                param($n, $d, $o)
+                if ($n -eq 'ProgramData' -and $o -eq [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) { '%SystemDrive%\ProgramData' }
+                else { 'E:\FromEnvironment\ProgramData' }
+            } -PassThru
         }
         Mock -ModuleName TailnetDesk Get-ItemProperty { [pscustomobject]@{ SystemRoot = 'D:\WINDOWS' } }
         Get-ProgramDataPath | Should -Be 'D:\ProgramData'
+    }
+    It 'finds Windows'' own programs in System32 under SystemRoot, never through PATH' {
+        Mock -ModuleName TailnetDesk Get-ItemProperty { [pscustomobject]@{ SystemRoot = 'D:\WINDOWS' } }
+        ((Get-System32Exe -Name 'icacls.exe') -replace '/', '\') | Should -Be 'D:\WINDOWS\System32\icacls.exe'
     }
 }
 
@@ -634,7 +669,7 @@ Describe 'New-PrivateFolder failure paths' {
     BeforeEach {
         Mock -ModuleName TailnetDesk Get-ProgramDataPath { $TestDrive }
         Mock -ModuleName TailnetDesk New-Item { }
-        Mock -ModuleName TailnetDesk Invoke-IcaclsTool { 0 }
+        Mock -ModuleName TailnetDesk Invoke-IcaclsTool { [pscustomobject]@{ ExitCode = 0; Output = '' } }
         Mock -ModuleName TailnetDesk Get-ChildItem { }
     }
     It 'refuses an existing folder that is not owned by Administrators or SYSTEM' {
@@ -648,8 +683,8 @@ Describe 'New-PrivateFolder failure paths' {
     }
     It 'stops when icacls fails to restrict the permissions' {
         Mock -ModuleName TailnetDesk Test-Path { $false }
-        Mock -ModuleName TailnetDesk Invoke-IcaclsTool { 5 }
-        { New-PrivateFolder } | Should -Throw "*Couldn't restrict the permissions*exit code 5*"
+        Mock -ModuleName TailnetDesk Invoke-IcaclsTool { [pscustomobject]@{ ExitCode = 5; Output = 'Access is denied.' } }
+        { New-PrivateFolder } | Should -Throw "*Couldn't restrict the permissions*exit code 5*Access is denied.*"
     }
     It 'stops when the new folder already holds something' {
         Mock -ModuleName TailnetDesk Test-Path { $false }
@@ -660,11 +695,65 @@ Describe 'New-PrivateFolder failure paths' {
         Mock -ModuleName TailnetDesk Test-Path { $false }
         $path = New-PrivateFolder
         $path | Should -BeLike (Join-Path (Join-Path $TestDrive 'tailnet-desk') '*')
-        Should -Invoke -ModuleName TailnetDesk Invoke-IcaclsTool -Times 2 -Exactly -ParameterFilter { $Argument -contains '/inheritance:r' }
+        $want = '/inheritance:r|/grant:r|*S-1-5-32-544:(OI)(CI)F|*S-1-5-18:(OI)(CI)F'
+        Should -Invoke -ModuleName TailnetDesk Invoke-IcaclsTool -Times 2 -Exactly -ParameterFilter { $a = @($Argument); ($a[1..($a.Count - 1)] -join '|') -eq $want }
+    }
+    It 'accepts an existing folder owned by <Name>, as on a second run' -ForEach @(
+        @{ Name = 'Administrators'; Sid = 'S-1-5-32-544' }
+        @{ Name = 'SYSTEM'; Sid = 'S-1-5-18' }
+    ) {
+        $script:ownerSid = $Sid
+        # Only the shared tailnet-desk folder exists; the new random folder inside it doesn't yet.
+        Mock -ModuleName TailnetDesk Test-Path { $LiteralPath -notmatch '[0-9a-f]{32}$' }
+        Mock -ModuleName TailnetDesk Get-Item { [pscustomobject]@{ Attributes = [IO.FileAttributes]::Directory } }
+        Mock -ModuleName TailnetDesk Get-Acl {
+            [pscustomobject]@{} | Add-Member -MemberType ScriptMethod -Name GetOwner -Value { param($t) [pscustomobject]@{ Value = $script:ownerSid } } -PassThru
+        }
+        New-PrivateFolder | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName TailnetDesk New-Item -Times 1 -Exactly
     }
     It 'makes nothing with -WhatIf' {
         New-PrivateFolder -WhatIf | Should -BeNullOrEmpty
         Should -Invoke -ModuleName TailnetDesk New-Item -Times 0 -Exactly
+    }
+}
+
+Describe 'Get-PortAllowRule' {
+    BeforeEach {
+        # Each port filter names the rule it belongs to; each rule says its action, direction and program.
+        Mock -ModuleName TailnetDesk Get-NetFirewallPortFilter { @(
+                [pscustomobject]@{ Protocol = 'TCP'; LocalPort = @('21118'); Rule = 'open-any' }
+                [pscustomobject]@{ Protocol = 'TCP'; LocalPort = @('21000-22000'); Rule = 'open-any' }
+                [pscustomobject]@{ Protocol = 'TCP'; LocalPort = @('21118'); Rule = 'one-program' }
+                [pscustomobject]@{ Protocol = 'Any'; LocalPort = @('Any'); Rule = 'blocked' }
+                [pscustomobject]@{ Protocol = 'TCP'; LocalPort = @('21118'); Rule = 'outbound' }
+                [pscustomobject]@{ Protocol = 'UDP'; LocalPort = @('21118'); Rule = 'udp' }) }
+        $script:rules = @{
+            'open-any'    = [pscustomobject]@{ Name = 'open-any'; Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound'; Program = 'Any' }
+            'one-program' = [pscustomobject]@{ Name = 'one-program'; Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound'; Program = 'C:\Tools\game.exe' }
+            'blocked'     = [pscustomobject]@{ Name = 'blocked'; Action = 'Block'; Enabled = 'True'; Direction = 'Inbound'; Program = 'Any' }
+            'outbound'    = [pscustomobject]@{ Name = 'outbound'; Action = 'Allow'; Enabled = 'True'; Direction = 'Outbound'; Program = 'Any' }
+            'udp'         = [pscustomobject]@{ Name = 'udp'; Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound'; Program = 'Any' }
+        }
+        Mock -ModuleName TailnetDesk Get-RuleOfFilter { $script:rules[$Filter.Rule] }
+        Mock -ModuleName TailnetDesk Get-ApplicationFilterOfRule { [pscustomobject]@{ Program = $Rule.Program } }
+    }
+    It 'returns only enabled inbound Allow rules for any program that cover the port, once each' {
+        (@(Get-PortAllowRule).Name -join ',') | Should -Be 'open-any'
+    }
+    It 'never looks up the rule of a filter that does not cover the port' {
+        $null = Get-PortAllowRule
+        Should -Invoke -ModuleName TailnetDesk Get-RuleOfFilter -Times 0 -ParameterFilter { $Filter.Rule -eq 'udp' }
+    }
+}
+
+Describe 'Get-FirewallRuleState' {
+    It 'reads each rule''s name, direction and adapters' {
+        Mock -ModuleName TailnetDesk Get-InterfaceAliasOfRule { @('Tailscale') }
+        $s = @(Get-FirewallRuleState -Rule @([pscustomobject]@{ DisplayName = 'RustDesk Service'; Direction = 'Inbound' }))
+        $s[0].DisplayName | Should -Be 'RustDesk Service'
+        $s[0].Direction | Should -Be 'Inbound'
+        ($s[0].InterfaceAlias -join ',') | Should -Be 'Tailscale'
     }
 }
 
