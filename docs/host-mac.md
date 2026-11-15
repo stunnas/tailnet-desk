@@ -71,7 +71,9 @@ Tailscale. So:
 3. RustDesk shows "For starting on boot, you need to install system service". Click **Install** and enter your Mac
    password. This is the part that runs in the background and starts at every boot, so you can reach the Mac when
    nobody has opened RustDesk, even at the login screen. macOS then says "Background Items Added". A **Start
-   service** button alone isn't enough: it only runs RustDesk until the next restart.
+   service** button alone isn't enough: it only runs RustDesk until the next restart. And on a Mac, RustDesk's **Stop service** does more than
+   stop it: it removes the startup items too. After using it, click **Install** again, or the Mac can't be reached
+   after its next restart.
 4. Give RustDesk the two macOS permissions it needs. In System Settings → Privacy & Security:
    - **Screen & System Audio Recording**: turn on RustDesk. Without it, the controller sees a blank screen.
    - **Accessibility**: turn on RustDesk. Without it, the controller sees the screen but can't click or type.
@@ -289,6 +291,7 @@ tests that prove the setup works must run from the controller.
 | The controller sees a black or blank screen | RustDesk isn't allowed to record the screen. | Allow it under Screen & System Audio Recording, then quit and reopen RustDesk. |
 | The controller sees the screen but can't click or type | RustDesk isn't allowed to control the Mac. | Allow it under Accessibility, then quit and reopen RustDesk. If it's already on, remove RustDesk with **-** and add it again with **+**. |
 | "Your ip is blocked by the peer" on the controller | The controller's address isn't on the whitelist, or Tailscale is off on the controller. | Check the controller's `100.x` address and add it (manual step 3, or the script's second run). |
+| The Mac can't be reached after a restart | RustDesk's startup items are missing: "Stop service" removes them, and "Start service" doesn't put them back. | At the Mac, open RustDesk and click **Install** under "For starting on boot". `test-host.sh` checks this. |
 | The Mac can't be reached after a while | It went to sleep. | See [step 4](#4-stay-awake). A closed MacBook sleeps unless something keeps it awake. |
 | Lost the phone with the authenticator app | You can't pass two-factor. | Sit at the host, turn two-factor off and on in RustDesk's Security settings, and scan the new QR code. |
 | Lost a controller (laptop or phone) | If it saved the password or was trusted for two-factor, anyone who unlocks it can connect. | At the host, remove it under **Manage trusted devices** (Security settings), change the permanent password, and remove its `100.x` address from the whitelist. Also remove it from the [Tailscale admin console](https://login.tailscale.com/admin/machines). |
