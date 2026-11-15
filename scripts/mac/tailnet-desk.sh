@@ -476,29 +476,35 @@ td_pf_disable() {
   /usr/bin/sudo /bin/rmdir "$TD_PF_DIR" 2> /dev/null || true
 }
 
-# The loader the startup item runs as root. It releases the reference an earlier run took in this same boot (when
-# enable-pf.sh runs again before a restart), takes a new pf reference (pfctl -E, which keeps pf on until every holder
-# lets go), saves its token with the boot's start time for the undo, and loads the rules into this step's anchor. A
-# token from an earlier boot is dropped, never released. It uses the library's own parsing functions, so the parsing
-# the tests check is the parsing that runs. Its errors go to TD_PF_LOG, which it empties first.
+# The loader the startup item runs as root. It takes a new pf reference first (pfctl -E, which keeps pf on until every
+# holder lets go), and only once that worked releases the reference an earlier run took in this same boot (when
+# enable-pf.sh runs again before a restart), so pf never goes off in between. It saves the new token with the boot's
+# start time for the undo, and loads the rules into this step's anchor. A token from an earlier boot is dropped, never
+# released. When it can't read the boot time or gets no token, it stops with the reason in TD_PF_LOG (emptied first)
+# and leaves an earlier token as it was. It uses the library's own parsing functions, so the parsing the tests check is
+# the parsing that runs.
 td_pf_loader() {
   cat << EOF
 #!/bin/bash
 # tailnet-desk pf loader, written by enable-pf.sh. Runs at boot as root. Undo with undo-pf.sh.
 set -eu
 dir='$TD_PF_DIR'
+log='$TD_PF_LOG'
 $(declare -f td_pf_token_from_output td_boot_from_sysctl td_pf_token_for_boot)
-: > "\$dir/load-pf.log" 2> /dev/null || true
+: > "\$log" 2> /dev/null || true
 boot=\$(/usr/sbin/sysctl -n kern.boottime | td_boot_from_sysctl)
+if [ -z "\$boot" ]; then
+  echo "Couldn't read the boot time (sysctl kern.boottime), so the pf reference couldn't be saved safely." >&2
+  exit 1
+fi
 old=\$(cat "\$dir/token" 2> /dev/null | td_pf_token_for_boot "\$boot" || true)
-if [ -n "\$old" ]; then /sbin/pfctl -X "\$old" > /dev/null 2>&1 || true; fi
-rm -f "\$dir/token"
 out=\$(/sbin/pfctl -E 2>&1) || true
 token=\$(printf '%s\n' "\$out" | td_pf_token_from_output)
 if [ -z "\$token" ]; then
   printf 'pfctl -E gave no token, so pf may not be on:\n%s\n' "\$out" >&2
   exit 1
 fi
+if [ -n "\$old" ] && [ "\$old" != "\$token" ]; then /sbin/pfctl -X "\$old" > /dev/null 2>&1 || true; fi
 printf '%s %s\n' "\$token" "\$boot" > "\$dir/token"
 /sbin/pfctl -a '$TD_PF_ANCHOR' -f "\$dir/pf.rules"
 EOF

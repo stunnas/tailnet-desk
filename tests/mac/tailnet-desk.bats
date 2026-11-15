@@ -211,9 +211,10 @@ enable-lan-discovery=N'
   /bin/bash -n "$BATS_TEST_TMPDIR/load-pf.sh"
 }
 
-@test "the pf loader saves its token with the boot, and a re-run in the same boot releases the old one first" {
-  # Run the real loader text with stand-ins for pfctl (logs its arguments, hands out tokens 1001, 1002, ...) and sysctl
-  # (reports the boot time in $FAKE_BOOT).
+# Writes the real loader text to $BATS_TEST_TMPDIR/load-pf.sh with stand-ins for pfctl and sysctl. The pfctl stand-in
+# logs its arguments to $PFCTL_LOG and hands out tokens 1001, 1002, ... for -E, or fails -E when $PFCTL_FAIL is set; the
+# sysctl stand-in reports the boot time in $FAKE_BOOT (an empty FAKE_BOOT gives output that can't be parsed).
+make_loader() {
   dir="$BATS_TEST_TMPDIR/pf"; mkdir -p "$dir"
   cat > "$BATS_TEST_TMPDIR/pfctl" << 'STUB'
 #!/bin/bash
@@ -224,18 +225,25 @@ if [ "$1" = -E ]; then
   printf 'No ALTQ support in kernel\npf enabled\nToken : %s\n' "$n"
 fi
 STUB
-  printf '#!/bin/bash\necho "{ sec = $FAKE_BOOT, usec = 5 } Sun Nov 15 11:04:24 2026"\n' > "$BATS_TEST_TMPDIR/sysctl"
+  cat > "$BATS_TEST_TMPDIR/sysctl" << 'STUB'
+#!/bin/bash
+if [ -n "${FAKE_BOOT-}" ]; then echo "{ sec = $FAKE_BOOT, usec = 5 } Sun Nov 15 11:04:24 2026"; else echo 'kern.boottime: unknown'; fi
+STUB
   chmod +x "$BATS_TEST_TMPDIR/pfctl" "$BATS_TEST_TMPDIR/sysctl"
   td td_pf_loader
   printf '%s\n' "$output" | sed -e "s#/sbin/pfctl#$BATS_TEST_TMPDIR/pfctl#g" -e "s#/usr/sbin/sysctl#$BATS_TEST_TMPDIR/sysctl#g" \
-    -e "s#^dir=.*#dir='$dir'#" > "$BATS_TEST_TMPDIR/load-pf.sh"
-  export PFCTL_LOG="$BATS_TEST_TMPDIR/pfctl.log" PFCTL_COUNT="$BATS_TEST_TMPDIR/count" FAKE_BOOT=111
-  /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh"
+    -e "s#^dir=.*#dir='$dir'#" -e "s#^log=.*#log='$dir/load-pf.log'#" > "$BATS_TEST_TMPDIR/load-pf.sh"
+  export PFCTL_LOG="$BATS_TEST_TMPDIR/pfctl.log" PFCTL_COUNT="$BATS_TEST_TMPDIR/count"
+}
+
+@test "the pf loader saves its token with the boot, and a re-run takes the new reference before releasing the old one" {
+  make_loader
+  FAKE_BOOT=111 /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh"
   [ "$(cat "$dir/token")" = '1001 111' ]
-  /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh"
+  FAKE_BOOT=111 /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh"
   [ "$(cat "$dir/token")" = '1002 111' ]
-  # In order: the second run releases 1001, then takes a new reference.
-  [ "$(grep -v -- '^-a ' "$PFCTL_LOG" | tr '\n' '|')" = '-E|-X 1001|-E|' ]
+  # In order: the second run takes 1002, then releases 1001, so pf never goes off in between.
+  [ "$(grep -v -- '^-a ' "$PFCTL_LOG" | tr '\n' '|')" = '-E|-E|-X 1001|' ]
   # After a restart (a new boot time), the old token is dropped, not released.
   FAKE_BOOT=222 /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh"
   [ "$(cat "$dir/token")" = '1003 222' ]
@@ -244,31 +252,53 @@ STUB
   [ "$status" -ne 0 ]
 }
 
-@test "the pf loader stops with pfctl's error when it gets no token" {
-  dir="$BATS_TEST_TMPDIR/pf"; mkdir -p "$dir"
-  printf '#!/bin/bash\n[ "$1" = -E ] && { echo "pfctl: DIOCSTARTREF: Permission denied" >&2; exit 1; }\nexit 0\n' > "$BATS_TEST_TMPDIR/pfctl"
-  printf '#!/bin/bash\necho "{ sec = 111, usec = 5 }"\n' > "$BATS_TEST_TMPDIR/sysctl"
-  chmod +x "$BATS_TEST_TMPDIR/pfctl" "$BATS_TEST_TMPDIR/sysctl"
-  td td_pf_loader
-  printf '%s\n' "$output" | sed -e "s#/sbin/pfctl#$BATS_TEST_TMPDIR/pfctl#g" -e "s#/usr/sbin/sysctl#$BATS_TEST_TMPDIR/sysctl#g" \
-    -e "s#^dir=.*#dir='$dir'#" > "$BATS_TEST_TMPDIR/load-pf.sh"
-  run /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh"
+@test "when pfctl -E gives no token, the loader stops with pfctl's error, keeps the old token and loads no rules" {
+  make_loader
+  printf '999 111\n' > "$dir/token"
+  PFCTL_FAIL=1 FAKE_BOOT=111 run /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *'pfctl -E gave no token'*'Permission denied'* ]] || false
-  [ ! -e "$dir/token" ]
+  [ "$(cat "$dir/token")" = '999 111' ]
+  run grep -q -- '^-X' "$PFCTL_LOG"
+  [ "$status" -ne 0 ]
+  run grep -q -- '^-a ' "$PFCTL_LOG"
+  [ "$status" -ne 0 ]
 }
 
-@test "td_boot_from_sysctl and td_pf_token_for_boot only accept a token from the same boot" {
+@test "when the boot time can't be read, the loader stops before touching pf" {
+  make_loader
+  printf '999 \n' > "$dir/token"
+  FAKE_BOOT= run /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Couldn't read the boot time"* ]] || false
+  [ ! -e "$PFCTL_LOG" ]
+}
+
+@test "td_boot_from_sysctl and td_pf_token_for_boot only accept a token from the same, known boot" {
   td_sh "printf '{ sec = 123456, usec = 435243 } Sun Nov 15 11:04:24 2026\n' | td_boot_from_sysctl"
   [ "$output" = 123456 ]
+  td_sh "printf 'garbage\n' | td_boot_from_sysctl"
+  [ -z "$output" ]
+  td_sh "printf '' | td_boot_from_sysctl"
+  [ -z "$output" ]
   td_sh "printf '1001 111\n' | td_pf_token_for_boot 111"
   [ "$output" = 1001 ]
   td_sh "printf '1001 111\n' | td_pf_token_for_boot 222"
   [ -z "$output" ]
   td_sh "printf '1001\n' | td_pf_token_for_boot 111"
   [ -z "$output" ]
+  td_sh "printf '1001 \n' | td_pf_token_for_boot ''"
+  [ -z "$output" ]
   td_sh "printf 'x1 111\n' | td_pf_token_for_boot 111"
   [ -z "$output" ]
+}
+
+@test "both Mac guides check RustDesk's signature with the script's own requirement" {
+  td td_rustdesk_requirement
+  want=$output
+  for guide in host-mac controller-mac; do
+    grep -qF -- "-R='$want'" "$ROOT/docs/$guide.md"
+  done
 }
 
 @test "td_pf_plist is a valid property list that runs the loader at boot" {
@@ -347,6 +377,9 @@ STUB
   run /bin/bash "$ROOT/scripts/mac/install-host.sh" --controller-ip
   [ "$status" -eq 2 ]
   [[ "$output" == *'needs an address'* ]] || false
+  run /bin/bash "$ROOT/scripts/mac/test-host.sh" --controller-ip
+  [ "$status" -eq 2 ]
+  [[ "$output" == *'--controller-ip needs an address'* ]] || false
   run /bin/bash "$ROOT/scripts/mac/test-from-controller.sh" --host-tailscale-ip
   [ "$status" -eq 2 ]
   [[ "$output" == *'--host-tailscale-ip needs an address'* ]] || false
