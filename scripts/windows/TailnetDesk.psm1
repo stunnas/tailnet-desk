@@ -138,6 +138,22 @@ function Resolve-ControllerIp {
             Where-Object { (Test-TailscaleIPv4 -Address $_) -and $_ -ne $OwnIp })
 }
 
+function Get-WhitelistChange {
+    <#
+    .SYNOPSIS
+    What a run without -ControllerIp does to the entries it can't keep (not one Tailscale address, or this PC's own).
+    With controllers kept, the whitelist is rewritten to just those, so the others are removed. With none kept,
+    direct IP access is turned off and the whitelist isn't rewritten, so the others stay in RustDesk.
+    #>
+    [CmdletBinding()]
+    param([AllowEmptyString()][string]$CurrentWhitelist = '', [AllowEmptyCollection()][string[]]$Kept = @())
+    $notKept = @(ConvertTo-AddressList -Address $CurrentWhitelist | Where-Object { @($Kept) -notcontains $_ })
+    return [pscustomobject]@{
+        NotKept = $notKept
+        Removed = ($notKept.Count -gt 0 -and @($Kept).Count -gt 0)
+    }
+}
+
 function Get-HostOption {
     <#
     .SYNOPSIS
@@ -335,6 +351,28 @@ function Test-PortFilterMatch {
     return (@(@($Filter.LocalPort) | Where-Object { Test-PortSpecCover -Spec "$_" -Port $Port }).Count -gt 0)
 }
 
+function Test-ApplicationFilter {
+    <#
+    .SYNOPSIS
+    True when a rule's application filter (as Get-NetFirewallApplicationFilter returns it) is for RustDesk's program
+    (-Program RustDesk), or for no program in particular, so it lets any program in (-Program Any).
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([AllowNull()]$Filter, [Parameter(Mandatory)][ValidateSet('RustDesk', 'Any')][string]$Program)
+    $have = if ($null -eq $Filter) { '' } else { "$($Filter.Program)" }
+    if ($Program -eq 'Any') { return ($have -eq 'Any') }
+    return ($have -like '*\rustdesk.exe')
+}
+
+function Test-HomeIPv4 {
+    <# .SYNOPSIS True for one IPv4 address that isn't a Tailscale address: what a home network address looks like. #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Address)
+    return ((Test-IPv4 -Address $Address) -and -not (Test-TailscaleIPv4 -Address $Address))
+}
+
 function Get-FirewallProfileFinding {
     <#
     .SYNOPSIS
@@ -402,6 +440,22 @@ function Get-PortTestVerdict {
     return [pscustomobject]@{ Check = $Label; Pass = ($Reachable -eq $ShouldBeReachable); Detail = "want $want, have $have" }
 }
 
+function Expand-SystemDrivePath {
+    <#
+    .SYNOPSIS
+    Fills in %SystemDrive% in a registry path with the drive of SystemRoot (such as C:\WINDOWS), not from the
+    environment. Throws on any other variable, or when SystemRoot doesn't start with a drive.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Value, [Parameter(Mandatory)][AllowEmptyString()][string]$SystemRoot)
+    if ($SystemRoot -notmatch '^([A-Za-z]:)\\') { throw "Can't tell the system drive from SystemRoot '$SystemRoot'." }
+    $drive = $Matches[1]
+    $path = [regex]::Replace($Value, '%SystemDrive%', $drive, [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if (-not $path -or $path.Contains('%')) { throw "Can't read the ProgramData folder from the registry value '$Value'." }
+    return $path
+}
+
 function Write-Finding {
     <#
     .SYNOPSIS
@@ -444,11 +498,18 @@ function Get-ProgramFilesPath {
 }
 
 function Get-ProgramDataPath {
-    <# .SYNOPSIS The ProgramData folder, read from the machine registry rather than an environment variable. #>
+    <#
+    .SYNOPSIS
+    The ProgramData folder, from the machine registry only. Windows stores it as %SystemDrive%\ProgramData, and
+    reading it normally fills in %SystemDrive% from the environment; here it is read unexpanded and the drive comes
+    from SystemRoot, a plain machine registry value.
+    #>
     [CmdletBinding()]
     param()
-    $key = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' -ErrorAction Stop
-    return $key.ProgramData
+    $key = Get-Item -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' -ErrorAction Stop
+    $raw = $key.GetValue('ProgramData', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    $systemRoot = (Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction Stop).SystemRoot
+    return (Expand-SystemDrivePath -Value "$raw" -SystemRoot "$systemRoot")
 }
 
 function Get-RustDeskExe {
@@ -536,7 +597,7 @@ function Get-RustDeskFirewallRule {
         Assert-OnlyNotFound -ErrorRecord $lookupError
     }
     $rules += @(Get-NetFirewallApplicationFilter @store -ErrorAction Stop |
-        Where-Object { $_.Program -like '*\rustdesk.exe' } |
+        Where-Object { Test-ApplicationFilter -Filter $_ -Program RustDesk } |
         Get-NetFirewallRule -ErrorAction Stop)
     return @($rules | Where-Object { $_ -and (Test-AllowRule -Rule $_) } | Sort-Object -Property Name -Unique)
 }
@@ -556,7 +617,7 @@ function Get-PortAllowRule {
         Where-Object { Test-PortFilterMatch -Filter $_ } |
         Get-NetFirewallRule -ErrorAction Stop |
         Where-Object { Test-AllowRule -Rule $_ -Direction Inbound } |
-        Where-Object { "$(($_ | Get-NetFirewallApplicationFilter -ErrorAction Stop).Program)" -eq 'Any' } |
+        Where-Object { Test-ApplicationFilter -Filter ($_ | Get-NetFirewallApplicationFilter -ErrorAction Stop) -Program Any } |
         Sort-Object -Property Name -Unique)
 }
 
@@ -582,15 +643,41 @@ function Install-Tailscale {
     if (Get-TailscaleExe) { Write-Host 'Tailscale is already installed.'; return }
     # winget can only be found through PATH (Windows installs it as a per-user app alias). Unlike tailscale.exe, there's
     # no fixed path to check; winget itself verifies the installer's hash against its manifest.
-    if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
+    if (-not (Test-WingetPresent)) {
         throw 'winget is missing. Install Tailscale from https://tailscale.com/download, then run this script again.'
     }
     $version = $script:Setting.TailscaleWinget
     if ($PSCmdlet.ShouldProcess("Tailscale $version", 'Install with winget')) {
-        & winget.exe install --id Tailscale.Tailscale --exact --version $version --source winget --silent `
-            --accept-package-agreements --accept-source-agreements
-        if ($LASTEXITCODE -ne 0) { throw "winget couldn't install Tailscale $version (exit code $LASTEXITCODE)." }
+        $code = Invoke-Winget -Argument @('install', '--id', 'Tailscale.Tailscale', '--exact', '--version', $version,
+            '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements')
+        if ($code -ne 0) { throw "winget couldn't install Tailscale $version (exit code $code)." }
     }
+}
+
+# Thin wrappers around the two programs the system changes run, so tests can stand in for them on any system.
+function Test-WingetPresent {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    return [bool](Get-Command winget.exe -ErrorAction SilentlyContinue)
+}
+
+function Invoke-Winget {
+    <# .SYNOPSIS Runs winget.exe with the arguments, shows its output, and returns its exit code. #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)][string[]]$Argument)
+    & winget.exe @Argument | Out-Host
+    return $LASTEXITCODE
+}
+
+function Invoke-IcaclsTool {
+    <# .SYNOPSIS Runs icacls.exe with the arguments, hides its output, and returns its exit code. #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)][string[]]$Argument)
+    & icacls.exe @Argument | Out-Null
+    return $LASTEXITCODE
 }
 
 function New-PrivateFolder {
@@ -620,8 +707,8 @@ function New-PrivateFolder {
             New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
         }
         # Remove inherited permissions; grant full control to Administrators and SYSTEM only.
-        & icacls.exe $dir /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "Couldn't restrict the permissions of $dir (icacls exit code $LASTEXITCODE)." }
+        $code = Invoke-IcaclsTool -Argument @($dir, '/inheritance:r', '/grant:r', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-18:(OI)(CI)F')
+        if ($code -ne 0) { throw "Couldn't restrict the permissions of $dir (icacls exit code $code)." }
     }
     # Anything planted before the permissions were tightened would still belong to its maker.
     if (@(Get-ChildItem -LiteralPath $path -Force -ErrorAction Stop).Count -gt 0) { throw "$path wasn't empty after it was created. Stopping." }

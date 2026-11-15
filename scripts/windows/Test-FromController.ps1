@@ -32,7 +32,7 @@ if (-not (Test-TailscaleIPv4 -Address $HostTailscaleIp)) {
     throw "Not a Tailscale address: '$HostTailscaleIp'. Tailscale addresses run from 100.64.0.0 to 100.127.255.255."
 }
 # A typo or a name that doesn't resolve would make the home test pass without testing anything.
-if ($HostHomeIp -and (-not (Test-IPv4 -Address $HostHomeIp) -or (Test-TailscaleIPv4 -Address $HostHomeIp))) {
+if ($HostHomeIp -and -not (Test-HomeIPv4 -Address $HostHomeIp)) {
     throw "Not a home network address: '$HostHomeIp'. Use the host's IPv4 Address from ipconfig, such as 192.168.0.10."
 }
 $myIp = Get-TailscaleIPv4

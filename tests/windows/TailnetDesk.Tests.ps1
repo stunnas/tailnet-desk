@@ -10,11 +10,25 @@ BeforeAll {
     if (-not (Get-Command Get-NetAdapter -ErrorAction SilentlyContinue)) {
         function global:Get-NetAdapter { [CmdletBinding()] param([string[]]$Name) throw 'stub' }
     }
+    # Each mock of a real NetSecurity cmdlet removes the types of the parameters it is given (Windows types them as
+    # CimInstance or WildcardPattern), so the stubs leave them untyped too and both systems check the same thing.
     if (-not (Get-Command Set-NetFirewallRule -ErrorAction SilentlyContinue)) {
         function global:Set-NetFirewallRule {
-            [CmdletBinding()] param([Parameter(ValueFromPipeline)]$InputObject, [string[]]$InterfaceAlias, $EdgeTraversalPolicy)
+            [CmdletBinding()] param([Parameter(ValueFromPipeline)]$InputObject, $InterfaceAlias, $EdgeTraversalPolicy)
             process { throw 'stub' }
         }
+    }
+    if (-not (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue)) {
+        function global:Get-NetFirewallRule {
+            [CmdletBinding()] param($DisplayName, $PolicyStore, [Parameter(ValueFromPipeline)]$AssociatedNetFirewallApplicationFilter)
+            process { throw 'stub' }
+        }
+    }
+    if (-not (Get-Command Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue)) {
+        function global:Get-NetFirewallApplicationFilter { [CmdletBinding()] param($PolicyStore) throw 'stub' }
+    }
+    if (-not (Get-Command Get-Acl -ErrorAction SilentlyContinue)) {
+        function global:Get-Acl { [CmdletBinding()] param([string]$LiteralPath) throw 'stub' }
     }
     if (-not (Get-Command Get-Service -ErrorAction SilentlyContinue)) {
         function global:Get-Service { [CmdletBinding()] param([string[]]$Name) throw 'stub' }
@@ -109,6 +123,28 @@ Describe 'Get-HostOption' {
         $o['verification-method'] | Should -Be 'use-permanent-password'
         $o['approve-mode'] | Should -Be 'password'
         $o['enable-lan-discovery'] | Should -Be 'N'
+    }
+}
+
+Describe 'Get-WhitelistChange' {
+    It 'reports entries as removed when valid controllers are kept, because the whitelist is rewritten' {
+        $c = Get-WhitelistChange -CurrentWhitelist '100.64.0.11,0.0.0.0' -Kept @('100.64.0.11')
+        ($c.NotKept -join ',') | Should -Be '0.0.0.0'
+        $c.Removed | Should -BeTrue
+    }
+    It 'reports entries as left in place when nothing is kept, because the whitelist is not rewritten' {
+        $c = Get-WhitelistChange -CurrentWhitelist '100.64.0.0/10' -Kept @()
+        ($c.NotKept -join ',') | Should -Be '100.64.0.0/10'
+        $c.Removed | Should -BeFalse
+    }
+    It 'reports nothing when every entry is kept' {
+        $c = Get-WhitelistChange -CurrentWhitelist '100.64.0.11' -Kept @('100.64.0.11')
+        $c.NotKept.Count | Should -Be 0
+        $c.Removed | Should -BeFalse
+    }
+    It 'matches what Get-HostOption writes: a rewritten whitelist only with kept controllers' {
+        (Get-HostOption -ControllerIp @('100.64.0.11')).Contains('whitelist') | Should -BeTrue
+        (Get-HostOption).Contains('whitelist') | Should -BeFalse
     }
 }
 
@@ -397,7 +433,7 @@ Describe 'Assert-OnlyNotFound' {
 Describe 'Set-RustDeskFirewallToTailscale' {
     BeforeEach {
         Mock -ModuleName TailnetDesk Get-NetAdapter { [pscustomobject]@{ Name = 'Tailscale' } }
-        Mock -ModuleName TailnetDesk Set-NetFirewallRule { } -RemoveParameterType InputObject
+        Mock -ModuleName TailnetDesk Set-NetFirewallRule { } -RemoveParameterType InputObject, InterfaceAlias
     }
     It 'throws when there is no Tailscale adapter, and changes nothing' {
         Mock -ModuleName TailnetDesk Get-NetAdapter { }
@@ -414,12 +450,12 @@ Describe 'Set-RustDeskFirewallToTailscale' {
                 [pscustomobject]@{ DisplayName = 'RustDesk Service'; Direction = 'Outbound'; EdgeTraversalPolicy = 'Block' }) }
         Set-RustDeskFirewallToTailscale
         Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 1 -Exactly -ParameterFilter { "$EdgeTraversalPolicy" -eq 'Block' }
-        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 2 -Exactly -ParameterFilter { "$InterfaceAlias" -eq 'Tailscale' }
+        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 2 -Exactly -ParameterFilter { @($InterfaceAlias) -contains 'Tailscale' }
     }
 }
 
 Describe 'Set-RustDeskFirewallToAny' {
-    BeforeEach { Mock -ModuleName TailnetDesk Set-NetFirewallRule { } -RemoveParameterType InputObject }
+    BeforeEach { Mock -ModuleName TailnetDesk Set-NetFirewallRule { } -RemoveParameterType InputObject, InterfaceAlias }
     It 'throws when there are no rules, so the undo never reports a change it did not make' {
         Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @() }
         { Set-RustDeskFirewallToAny } | Should -Throw '*nothing to undo*'
@@ -427,7 +463,7 @@ Describe 'Set-RustDeskFirewallToAny' {
     It 'puts every rule back on every adapter' {
         Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @([pscustomobject]@{ DisplayName = 'rustdesk.exe'; Direction = 'Inbound' }) }
         Set-RustDeskFirewallToAny
-        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 1 -Exactly -ParameterFilter { "$InterfaceAlias" -eq 'Any' }
+        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 1 -Exactly -ParameterFilter { @($InterfaceAlias) -contains 'Any' }
     }
 }
 
@@ -504,6 +540,23 @@ Describe 'Get-PortTestVerdict' {
     }
 }
 
+Describe 'Expand-SystemDrivePath' {
+    It 'fills in the drive from SystemRoot, in any letter case' {
+        Expand-SystemDrivePath -Value '%SystemDrive%\ProgramData' -SystemRoot 'D:\WINDOWS' | Should -Be 'D:\ProgramData'
+        Expand-SystemDrivePath -Value '%systemdrive%\ProgramData' -SystemRoot 'C:\Windows' | Should -Be 'C:\ProgramData'
+    }
+    It 'keeps a path that has no variable' {
+        Expand-SystemDrivePath -Value 'C:\ProgramData' -SystemRoot 'C:\WINDOWS' | Should -Be 'C:\ProgramData'
+    }
+    It 'refuses any other variable, which would come from the environment' {
+        { Expand-SystemDrivePath -Value '%USERPROFILE%\ProgramData' -SystemRoot 'C:\WINDOWS' } | Should -Throw "*Can't read the ProgramData folder*"
+    }
+    It 'refuses an empty value or a SystemRoot without a drive' {
+        { Expand-SystemDrivePath -Value '' -SystemRoot 'C:\WINDOWS' } | Should -Throw
+        { Expand-SystemDrivePath -Value '%SystemDrive%\ProgramData' -SystemRoot '%SystemDrive%\WINDOWS' } | Should -Throw "*system drive*"
+    }
+}
+
 Describe 'Write-Finding' {
     BeforeAll { Mock -ModuleName TailnetDesk Write-Host { } }
     It 'returns true when all passed' {
@@ -516,6 +569,133 @@ Describe 'Write-Finding' {
     }
     It 'returns false when there is nothing to report, so an empty check never passes' {
         Write-Finding -Finding @() | Should -BeFalse
+    }
+}
+
+Describe 'Test-ApplicationFilter' {
+    It 'recognises RustDesk''s program, in any folder' {
+        Test-ApplicationFilter -Filter ([pscustomobject]@{ Program = 'C:\Program Files\RustDesk\rustdesk.exe' }) -Program RustDesk | Should -BeTrue
+        Test-ApplicationFilter -Filter ([pscustomobject]@{ Program = 'C:\Tools\browser.exe' }) -Program RustDesk | Should -BeFalse
+    }
+    It 'counts only Any as a rule for every program, so rules for one named program are left out' {
+        Test-ApplicationFilter -Filter ([pscustomobject]@{ Program = 'Any' }) -Program Any | Should -BeTrue
+        Test-ApplicationFilter -Filter ([pscustomobject]@{ Program = 'C:\Tools\game.exe' }) -Program Any | Should -BeFalse
+        Test-ApplicationFilter -Filter $null -Program Any | Should -BeFalse
+    }
+}
+
+Describe 'Test-HomeIPv4' {
+    It 'accepts a home address' { Test-HomeIPv4 -Address '192.168.0.10' | Should -BeTrue }
+    It 'refuses a Tailscale address, a name and a typo: <_>' -ForEach @('100.64.0.10', 'myhost', '192.168.0') { # check-private-data: allow
+        Test-HomeIPv4 -Address $_ | Should -BeFalse
+    }
+}
+
+Describe 'Get-RustDeskFirewallRule' {
+    BeforeEach {
+        Mock -ModuleName TailnetDesk Get-NetFirewallApplicationFilter { }
+    }
+    It 'treats a rule name that does not exist as no rule' {
+        Mock -ModuleName TailnetDesk Get-NetFirewallRule { Write-Error -Message 'No rule' -Category ObjectNotFound }
+        @(Get-RustDeskFirewallRule).Count | Should -Be 0
+    }
+    It 'stops on any other lookup error, such as access denied' {
+        Mock -ModuleName TailnetDesk Get-NetFirewallRule { Write-Error -Message 'Access denied' -Category PermissionDenied }
+        { Get-RustDeskFirewallRule } | Should -Throw '*Access denied*'
+    }
+    It 'keeps enabled Allow rules once each, and drops Block rules' {
+        Mock -ModuleName TailnetDesk Get-NetFirewallRule { @(
+                [pscustomobject]@{ Name = 'a'; Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound' }
+                [pscustomobject]@{ Name = 'b'; Action = 'Block'; Enabled = 'True'; Direction = 'Inbound' }) }
+        $r = @(Get-RustDeskFirewallRule)
+        ($r.Name -join ',') | Should -Be 'a'
+    }
+}
+
+Describe 'Get-ProgramFilesPath and Get-ProgramDataPath' {
+    It 'prefers the 64-bit Program Files folder, so 32-bit PowerShell finds the right one' {
+        Mock -ModuleName TailnetDesk Get-ItemProperty { [pscustomobject]@{ ProgramFilesDir = 'C:\Program Files (x86)'; ProgramW6432Dir = 'C:\Program Files' } }
+        Get-ProgramFilesPath | Should -Be 'C:\Program Files'
+    }
+    It 'falls back to ProgramFilesDir when there is no 64-bit value' {
+        Mock -ModuleName TailnetDesk Get-ItemProperty { [pscustomobject]@{ ProgramFilesDir = 'C:\Program Files' } }
+        Get-ProgramFilesPath | Should -Be 'C:\Program Files'
+    }
+    It 'reads ProgramData unexpanded and fills in the drive from SystemRoot' {
+        Mock -ModuleName TailnetDesk Get-Item {
+            [pscustomobject]@{} | Add-Member -MemberType ScriptMethod -Name GetValue -Value { param($n, $d, $o) '%SystemDrive%\ProgramData' } -PassThru
+        }
+        Mock -ModuleName TailnetDesk Get-ItemProperty { [pscustomobject]@{ SystemRoot = 'D:\WINDOWS' } }
+        Get-ProgramDataPath | Should -Be 'D:\ProgramData'
+    }
+}
+
+Describe 'New-PrivateFolder failure paths' {
+    BeforeEach {
+        Mock -ModuleName TailnetDesk Get-ProgramDataPath { $TestDrive }
+        Mock -ModuleName TailnetDesk New-Item { }
+        Mock -ModuleName TailnetDesk Invoke-IcaclsTool { 0 }
+        Mock -ModuleName TailnetDesk Get-ChildItem { }
+    }
+    It 'refuses an existing folder that is not owned by Administrators or SYSTEM' {
+        Mock -ModuleName TailnetDesk Test-Path { $true }
+        Mock -ModuleName TailnetDesk Get-Item { [pscustomobject]@{ Attributes = [IO.FileAttributes]::Directory } }
+        Mock -ModuleName TailnetDesk Get-Acl {
+            [pscustomobject]@{} | Add-Member -MemberType ScriptMethod -Name GetOwner -Value { param($t) [pscustomobject]@{ Value = 'S-1-5-21-1-2-3-1001' } } -PassThru
+        }
+        { New-PrivateFolder } | Should -Throw "*isn't owned by Administrators*"
+        Should -Invoke -ModuleName TailnetDesk Invoke-IcaclsTool -Times 0 -Exactly
+    }
+    It 'stops when icacls fails to restrict the permissions' {
+        Mock -ModuleName TailnetDesk Test-Path { $false }
+        Mock -ModuleName TailnetDesk Invoke-IcaclsTool { 5 }
+        { New-PrivateFolder } | Should -Throw "*Couldn't restrict the permissions*exit code 5*"
+    }
+    It 'stops when the new folder already holds something' {
+        Mock -ModuleName TailnetDesk Test-Path { $false }
+        Mock -ModuleName TailnetDesk Get-ChildItem { [pscustomobject]@{ Name = 'planted.exe' } }
+        { New-PrivateFolder } | Should -Throw "*wasn't empty*"
+    }
+    It 'returns a new admin-only folder under ProgramData\tailnet-desk' {
+        Mock -ModuleName TailnetDesk Test-Path { $false }
+        $path = New-PrivateFolder
+        $path | Should -BeLike (Join-Path (Join-Path $TestDrive 'tailnet-desk') '*')
+        Should -Invoke -ModuleName TailnetDesk Invoke-IcaclsTool -Times 2 -Exactly -ParameterFilter { $Argument -contains '/inheritance:r' }
+    }
+    It 'makes nothing with -WhatIf' {
+        New-PrivateFolder -WhatIf | Should -BeNullOrEmpty
+        Should -Invoke -ModuleName TailnetDesk New-Item -Times 0 -Exactly
+    }
+}
+
+Describe 'Install-Tailscale' {
+    BeforeEach {
+        Mock -ModuleName TailnetDesk Get-TailscaleExe { $null }
+        Mock -ModuleName TailnetDesk Test-WingetPresent { $true }
+        Mock -ModuleName TailnetDesk Invoke-Winget { 0 }
+        Mock -ModuleName TailnetDesk Write-Host { }
+    }
+    It 'installs the pinned version with winget' {
+        Install-Tailscale
+        $v = (Get-TailnetDeskSetting).TailscaleWinget
+        Should -Invoke -ModuleName TailnetDesk Invoke-Winget -Times 1 -Exactly -ParameterFilter { ($Argument -join ' ') -like "install --id Tailscale.Tailscale --exact --version $v *" }
+    }
+    It 'does nothing when Tailscale is already installed' {
+        Mock -ModuleName TailnetDesk Get-TailscaleExe { 'tailscale.exe' }
+        Install-Tailscale
+        Should -Invoke -ModuleName TailnetDesk Invoke-Winget -Times 0 -Exactly
+    }
+    It 'refuses when winget is missing' {
+        Mock -ModuleName TailnetDesk Test-WingetPresent { $false }
+        { Install-Tailscale } | Should -Throw '*winget is missing*'
+    }
+    It 'throws when winget fails' {
+        Mock -ModuleName TailnetDesk Invoke-Winget { 7 }
+        { Install-Tailscale } | Should -Throw "*couldn't install Tailscale*exit code 7*"
+    }
+    It 'installs nothing with -WhatIf' {
+        Install-Tailscale -WhatIf
+        Should -Invoke -ModuleName TailnetDesk Invoke-Winget -Times 0 -Exactly
     }
 }
 

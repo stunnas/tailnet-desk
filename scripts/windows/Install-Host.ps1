@@ -49,7 +49,7 @@ Write-Step 'Step 1 of 6: Tailscale'
 Install-Tailscale
 $myIp = Get-TailscaleIPv4
 if (-not $myIp) {
-    Write-Host 'Tailscale is installed but not signed in.' -ForegroundColor Yellow
+    Write-Host 'Tailscale is installed but not signed in (or not running).' -ForegroundColor Yellow
     Write-Host 'Click the Tailscale icon in the system tray (near the clock), choose Log in, and sign in.'
     Write-Host 'Then run this script again.'
     exit 2
@@ -85,10 +85,14 @@ if ($controllers.Count -gt 0) {
     Write-Host 'No controller yet, so direct IP access is OFF.' -ForegroundColor Yellow
 }
 if ($given.Count -eq 0) {
-    $notKept = @(ConvertTo-AddressList -Address $current['whitelist'] | Where-Object { $controllers -notcontains $_ })
-    if ($notKept.Count -gt 0) {
-        Write-Host "Not kept: $($notKept -join ', '). Each isn't a single Tailscale address or is this PC's own." -ForegroundColor Yellow
-        Write-Host '  They stay in RustDesk until you run this again with -ControllerIp, and the check below fails them.' -ForegroundColor Yellow
+    $change = Get-WhitelistChange -CurrentWhitelist $current['whitelist'] -Kept $controllers
+    if ($change.NotKept.Count -gt 0) {
+        Write-Host "Not kept: $($change.NotKept -join ', '). Each isn't a single Tailscale address or is this PC's own." -ForegroundColor Yellow
+        if ($change.Removed) {
+            Write-Host '  They are removed from the whitelist now.' -ForegroundColor Yellow
+        } else {
+            Write-Host '  They stay in RustDesk until you run this again with -ControllerIp, and the check below fails them.' -ForegroundColor Yellow
+        }
     }
 }
 Set-RustDeskOption -Exe $exe -Option $options
