@@ -132,9 +132,10 @@ enable-lan-discovery=N'
   [[ "$output" == *$'PASS\tWhitelist entry \'100.64.0.11\' is one Tailscale address'* ]] || false
 }
 
-@test "td_host_findings fails this Mac's own address given as a controller" {
-  td_sh "printf '%s\nwhitelist=100.64.0.10\ndirect-server=Y\n' '$good' | td_host_findings '100.64.0.10' 100.64.0.10"
-  [[ "$output" == *$'FAIL\tWhitelist doesn\'t include this Mac\'s own address'* ]] || false
+@test "td_host_findings fails a whitelist that differs from the given controller" {
+  td_sh "printf '%s\nwhitelist=\ndirect-server=\n' '$good' | td_host_findings '100.64.0.11' 100.64.0.10"
+  [[ "$output" == *$'FAIL\tRustDesk setting whitelist'* ]] || false
+  [[ "$output" == *$'FAIL\tRustDesk setting direct-server'* ]] || false
 }
 
 @test "td_option_value reads a setting's value, keeping any = after the first" {
@@ -146,7 +147,7 @@ enable-lan-discovery=N'
   [ "$output" = 100.64.0.11 ]
 }
 
-@test "the Mac and Windows scripts set the same RustDesk settings" {
+@test "the Mac and Windows scripts set the same fixed RustDesk settings (all but the whitelist and direct IP access)" {
   win=$(sed -n "s/^ *'\([a-z-]*\)' *= *'\([^']*\)'.*/\1=\2/p" "$ROOT/scripts/windows/TailnetDesk.psm1" | sort)
   td td_host_options
   mac=$(printf '%s\n' "$output" | grep -v '^direct-server=' | sort)
@@ -210,29 +211,64 @@ enable-lan-discovery=N'
   /bin/bash -n "$BATS_TEST_TMPDIR/load-pf.sh"
 }
 
-@test "the pf loader saves its token, and a second run releases the first reference before taking a new one" {
-  # Run the real loader text with a stand-in pfctl that logs its arguments and hands out tokens 1001, 1002, ...
+@test "the pf loader saves its token with the boot, and a re-run in the same boot releases the old one first" {
+  # Run the real loader text with stand-ins for pfctl (logs its arguments, hands out tokens 1001, 1002, ...) and sysctl
+  # (reports the boot time in $FAKE_BOOT).
   dir="$BATS_TEST_TMPDIR/pf"; mkdir -p "$dir"
   cat > "$BATS_TEST_TMPDIR/pfctl" << 'STUB'
 #!/bin/bash
 printf '%s\n' "$*" >> "$PFCTL_LOG"
 if [ "$1" = -E ]; then
+  [ -z "${PFCTL_FAIL-}" ] || { echo 'pfctl: DIOCSTARTREF: Permission denied' >&2; exit 1; }
   n=$(( $(cat "$PFCTL_COUNT" 2> /dev/null || echo 1000) + 1 )); echo "$n" > "$PFCTL_COUNT"
   printf 'No ALTQ support in kernel\npf enabled\nToken : %s\n' "$n"
 fi
 STUB
-  chmod +x "$BATS_TEST_TMPDIR/pfctl"
+  printf '#!/bin/bash\necho "{ sec = $FAKE_BOOT, usec = 5 } Sun Nov 15 11:04:24 2026"\n' > "$BATS_TEST_TMPDIR/sysctl"
+  chmod +x "$BATS_TEST_TMPDIR/pfctl" "$BATS_TEST_TMPDIR/sysctl"
   td td_pf_loader
-  printf '%s\n' "$output" | sed -e "s#/sbin/pfctl#$BATS_TEST_TMPDIR/pfctl#g" -e "s#^dir=.*#dir='$dir'#" > "$BATS_TEST_TMPDIR/load-pf.sh"
-  export PFCTL_LOG="$BATS_TEST_TMPDIR/pfctl.log" PFCTL_COUNT="$BATS_TEST_TMPDIR/count"
+  printf '%s\n' "$output" | sed -e "s#/sbin/pfctl#$BATS_TEST_TMPDIR/pfctl#g" -e "s#/usr/sbin/sysctl#$BATS_TEST_TMPDIR/sysctl#g" \
+    -e "s#^dir=.*#dir='$dir'#" > "$BATS_TEST_TMPDIR/load-pf.sh"
+  export PFCTL_LOG="$BATS_TEST_TMPDIR/pfctl.log" PFCTL_COUNT="$BATS_TEST_TMPDIR/count" FAKE_BOOT=111
   /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh"
-  [ "$(cat "$dir/token")" = 1001 ]
+  [ "$(cat "$dir/token")" = '1001 111' ]
   /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh"
-  [ "$(cat "$dir/token")" = 1002 ]
-  grep -qx -- '-X 1001' "$PFCTL_LOG"
-  [ "$(grep -c -- '^-E' "$PFCTL_LOG")" -eq 2 ]
+  [ "$(cat "$dir/token")" = '1002 111' ]
+  # In order: the second run releases 1001, then takes a new reference.
+  [ "$(grep -v -- '^-a ' "$PFCTL_LOG" | tr '\n' '|')" = '-E|-X 1001|-E|' ]
+  # After a restart (a new boot time), the old token is dropped, not released.
+  FAKE_BOOT=222 /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh"
+  [ "$(cat "$dir/token")" = '1003 222' ]
+  [ "$(grep -c -- '^-X' "$PFCTL_LOG")" -eq 1 ]
   run grep -q -- '^-d' "$PFCTL_LOG"
   [ "$status" -ne 0 ]
+}
+
+@test "the pf loader stops with pfctl's error when it gets no token" {
+  dir="$BATS_TEST_TMPDIR/pf"; mkdir -p "$dir"
+  printf '#!/bin/bash\n[ "$1" = -E ] && { echo "pfctl: DIOCSTARTREF: Permission denied" >&2; exit 1; }\nexit 0\n' > "$BATS_TEST_TMPDIR/pfctl"
+  printf '#!/bin/bash\necho "{ sec = 111, usec = 5 }"\n' > "$BATS_TEST_TMPDIR/sysctl"
+  chmod +x "$BATS_TEST_TMPDIR/pfctl" "$BATS_TEST_TMPDIR/sysctl"
+  td td_pf_loader
+  printf '%s\n' "$output" | sed -e "s#/sbin/pfctl#$BATS_TEST_TMPDIR/pfctl#g" -e "s#/usr/sbin/sysctl#$BATS_TEST_TMPDIR/sysctl#g" \
+    -e "s#^dir=.*#dir='$dir'#" > "$BATS_TEST_TMPDIR/load-pf.sh"
+  run /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'pfctl -E gave no token'*'Permission denied'* ]] || false
+  [ ! -e "$dir/token" ]
+}
+
+@test "td_boot_from_sysctl and td_pf_token_for_boot only accept a token from the same boot" {
+  td_sh "printf '{ sec = 123456, usec = 435243 } Sun Nov 15 11:04:24 2026\n' | td_boot_from_sysctl"
+  [ "$output" = 123456 ]
+  td_sh "printf '1001 111\n' | td_pf_token_for_boot 111"
+  [ "$output" = 1001 ]
+  td_sh "printf '1001 111\n' | td_pf_token_for_boot 222"
+  [ -z "$output" ]
+  td_sh "printf '1001\n' | td_pf_token_for_boot 111"
+  [ -z "$output" ]
+  td_sh "printf 'x1 111\n' | td_pf_token_for_boot 111"
+  [ -z "$output" ]
 }
 
 @test "td_pf_plist is a valid property list that runs the loader at boot" {
@@ -298,6 +334,7 @@ STUB
   for s in install-host test-host test-from-controller enable-pf undo-pf; do
     run /bin/bash "$ROOT/scripts/mac/$s.sh" --no-such-option
     [ "$status" -eq 2 ]
+    [[ "$output" == *'Unknown option: --no-such-option'* ]] || false
     run /bin/bash "$ROOT/scripts/mac/$s.sh" --help
     [ "$status" -eq 0 ]
     [[ "$output" == *'Usage:'* ]] || false
@@ -312,6 +349,7 @@ STUB
   [[ "$output" == *'needs an address'* ]] || false
   run /bin/bash "$ROOT/scripts/mac/test-from-controller.sh" --host-tailscale-ip
   [ "$status" -eq 2 ]
+  [[ "$output" == *'--host-tailscale-ip needs an address'* ]] || false
   run /bin/bash "$ROOT/scripts/mac/test-from-controller.sh"
   [ "$status" -eq 2 ]
   [[ "$output" == *'Not a Tailscale address'* ]] || false

@@ -23,7 +23,6 @@ TD_RUSTDESK_VERSION='1.5.3'
 TD_RUSTDESK_SHA256_ARM64='e6d30fa1633d772c48935907c208ca4e555a856fb2038af3aaa87a327c29360b'
 TD_RUSTDESK_SHA256_X86_64='74d06e6b2e273a128e8d36313e30d47db2063f453a4235ed4d9e5cdfdf9be538'
 TD_RUSTDESK_TEAM='HZF9JMC8YN'               # Apple Developer ID team that signs RustDesk's app and disk images
-TD_PF_LOG='/Library/Application Support/tailnet-desk/load-pf.log'   # the pf loader's errors, for the FAIL message
 TD_RUSTDESK_APP='/Applications/RustDesk.app'
 # RustDesk's startup items, which its Install button ("For starting on boot") creates. Without them, "Start service"
 # only runs RustDesk's server until the next restart.
@@ -36,6 +35,7 @@ TD_PF_ANCHOR='com.apple/tailnet-desk'       # evaluated through Apple's own anch
 TD_PF_DIR='/Library/Application Support/tailnet-desk'
 TD_PF_LABEL='io.github.stunnas.tailnet-desk.pf'
 TD_PF_PLIST="/Library/LaunchDaemons/$TD_PF_LABEL.plist"
+TD_PF_LOG="$TD_PF_DIR/load-pf.log"          # the pf loader's errors, which the failure message points to
 
 # --- Checks (no system access) -------------------------------------------------------------------------------
 
@@ -288,6 +288,18 @@ td_pf_token_from_output() {
   awk -F': *' '/^Token *:/ { gsub(/[^0-9]/, "", $2); print $2; exit }'
 }
 
+# The boot's start time in seconds, from sysctl -n kern.boottime ("{ sec = 123456, usec = ... } ..."), read from
+# stdin, or nothing. A saved pf token is only valid in the boot that made it, so it's saved with this.
+td_boot_from_sysctl() {
+  sed -n 's/.*sec = \([0-9][0-9]*\),.*/\1/p' | head -n 1
+}
+
+# The saved token from a token file's text ("<token> <boot>", read from stdin) when it was saved in boot $1, or
+# nothing. A token from an earlier boot is never released: by now another program may hold that number.
+td_pf_token_for_boot() {
+  awk -v boot="$1" '$1 ~ /^[0-9]+$/ && $2 != "" && $2 == boot { print $1; exit }'
+}
+
 # --- System reads --------------------------------------------------------------------------------------------
 
 # The Tailscale command line tool: the Standalone or App Store app's own binary, never one found through PATH.
@@ -455,32 +467,39 @@ td_pf_rules_loaded() {
 td_pf_disable() {
   /usr/bin/sudo /bin/launchctl bootout system "$TD_PF_PLIST" 2> /dev/null || true
   /usr/bin/sudo /sbin/pfctl -a "$TD_PF_ANCHOR" -F all 2> /dev/null || true
-  local token
-  token=$(/usr/bin/sudo /bin/cat "$TD_PF_DIR/token" 2> /dev/null || true)
-  case "$token" in
-    '' | *[!0-9]*) ;;
-    *) /usr/bin/sudo /sbin/pfctl -X "$token" 2> /dev/null || true ;;   # never pfctl -d: that would stop pf for everything
-  esac
+  local token boot
+  boot=$(/usr/sbin/sysctl -n kern.boottime | td_boot_from_sysctl)
+  token=$(/usr/bin/sudo /bin/cat "$TD_PF_DIR/token" 2> /dev/null | td_pf_token_for_boot "$boot" || true)
+  # Never pfctl -d: that would stop pf for everything. Release only this step's own reference.
+  if [ -n "$token" ]; then /usr/bin/sudo /sbin/pfctl -X "$token" 2> /dev/null || true; fi
   /usr/bin/sudo /bin/rm -f "$TD_PF_PLIST" "$TD_PF_DIR/pf.rules" "$TD_PF_DIR/load-pf.sh" "$TD_PF_DIR/token" "$TD_PF_LOG"
   /usr/bin/sudo /bin/rmdir "$TD_PF_DIR" 2> /dev/null || true
 }
 
-# The loader the startup item runs as root: release the reference an earlier run took (when enable-pf.sh runs again
-# before a restart; after a restart the old token is simply invalid), take a new pf reference (pfctl -E, which keeps pf
-# on until every holder lets go), save its token for the undo, and load the rules into this step's anchor. It uses the
-# library's own td_pf_token_from_output, so the parsing the tests check is the parsing that runs.
+# The loader the startup item runs as root. It releases the reference an earlier run took in this same boot (when
+# enable-pf.sh runs again before a restart), takes a new pf reference (pfctl -E, which keeps pf on until every holder
+# lets go), saves its token with the boot's start time for the undo, and loads the rules into this step's anchor. A
+# token from an earlier boot is dropped, never released. It uses the library's own parsing functions, so the parsing
+# the tests check is the parsing that runs. Its errors go to TD_PF_LOG, which it empties first.
 td_pf_loader() {
   cat << EOF
 #!/bin/bash
 # tailnet-desk pf loader, written by enable-pf.sh. Runs at boot as root. Undo with undo-pf.sh.
 set -eu
 dir='$TD_PF_DIR'
-$(declare -f td_pf_token_from_output)
-old=\$(cat "\$dir/token" 2> /dev/null || true)
-case "\$old" in '' | *[!0-9]*) ;; *) /sbin/pfctl -X "\$old" > /dev/null 2>&1 || true ;; esac
+$(declare -f td_pf_token_from_output td_boot_from_sysctl td_pf_token_for_boot)
+: > "\$dir/load-pf.log" 2> /dev/null || true
+boot=\$(/usr/sbin/sysctl -n kern.boottime | td_boot_from_sysctl)
+old=\$(cat "\$dir/token" 2> /dev/null | td_pf_token_for_boot "\$boot" || true)
+if [ -n "\$old" ]; then /sbin/pfctl -X "\$old" > /dev/null 2>&1 || true; fi
 rm -f "\$dir/token"
-token=\$(/sbin/pfctl -E 2>&1 | td_pf_token_from_output || true)
-if [ -n "\$token" ]; then printf '%s\n' "\$token" > "\$dir/token"; fi
+out=\$(/sbin/pfctl -E 2>&1) || true
+token=\$(printf '%s\n' "\$out" | td_pf_token_from_output)
+if [ -z "\$token" ]; then
+  printf 'pfctl -E gave no token, so pf may not be on:\n%s\n' "\$out" >&2
+  exit 1
+fi
+printf '%s %s\n' "\$token" "\$boot" > "\$dir/token"
 /sbin/pfctl -a '$TD_PF_ANCHOR' -f "\$dir/pf.rules"
 EOF
 }
