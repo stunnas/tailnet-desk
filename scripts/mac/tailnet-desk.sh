@@ -313,6 +313,14 @@ td_pf_token_to_release() {
   printf '%s\n' "$token"
 }
 
+# td_pf_token_to_release for the token file at $1, in boot $2. A missing or empty file means nothing was saved. The file
+# is read on its own first: under set -o pipefail a failed read inside the pipeline would look like "can't release".
+td_pf_token_to_release_from_file() {
+  local saved
+  saved=$(cat "$1" 2> /dev/null || true)
+  printf '%s' "$saved" | td_pf_token_to_release "$2"
+}
+
 # --- System reads --------------------------------------------------------------------------------------------
 
 # The Tailscale command line tool: the Standalone or App Store app's own binary, never one found through PATH.
@@ -483,7 +491,7 @@ td_pf_disable() {
   /usr/bin/sudo /sbin/pfctl -a "$TD_PF_ANCHOR" -F all 2> /dev/null || true
   local token boot status=0 err
   boot=$(/usr/sbin/sysctl -n kern.boottime | td_boot_from_sysctl)
-  if token=$(/usr/bin/sudo /bin/cat "$TD_PF_DIR/token" 2> /dev/null | td_pf_token_to_release "$boot"); then
+  if token=$(td_pf_token_to_release_from_file "$TD_PF_DIR/token" "$boot"); then
     # Never pfctl -d: that would stop pf for everything. Release only this step's own reference.
     if [ -n "$token" ] && ! err=$(/usr/bin/sudo /sbin/pfctl -X "$token" 2>&1); then
       echo "Couldn't release this step's pf reference: $err" >&2

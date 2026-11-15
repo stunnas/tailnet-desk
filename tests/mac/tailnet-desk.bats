@@ -275,11 +275,28 @@ STUB
   [ "$(cat "$dir/token")" = '999 111' ]
 }
 
-@test "the pf loader empties its log before a run" {
+@test "the pf loader empties its log before a run, and keeps this run's error" {
   make_loader
   printf 'old error\n' > "$dir/load-pf.log"
   FAKE_BOOT=111 /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh" 2>> "$dir/load-pf.log"
   [ ! -s "$dir/load-pf.log" ]
+  printf 'old error\n' > "$dir/load-pf.log"
+  FAKE_BOOT= /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh" 2>> "$dir/load-pf.log" || true
+  grep -q "Couldn't read the boot time" "$dir/load-pf.log"
+  run grep -q 'old error' "$dir/load-pf.log"
+  [ "$status" -ne 0 ]
+}
+
+@test "td_pf_token_to_release_from_file treats a missing token file as nothing saved, under set -euo pipefail" {
+  td td_pf_token_to_release_from_file "$BATS_TEST_TMPDIR/no-such-token" 111
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  printf '1001 111\n' > "$BATS_TEST_TMPDIR/token"
+  td td_pf_token_to_release_from_file "$BATS_TEST_TMPDIR/token" 111
+  [ "$status" -eq 0 ]
+  [ "$output" = 1001 ]
+  td td_pf_token_to_release_from_file "$BATS_TEST_TMPDIR/token" 222
+  [ "$status" -eq 3 ]
 }
 
 @test "td_pf_token_to_release releases only this boot's token, and says when it can't" {
@@ -291,6 +308,7 @@ STUB
   [ -z "$output" ]
   td_sh "printf '1001 111\n' | td_pf_token_to_release ''"
   [ "$status" -eq 3 ]
+  [ -z "$output" ]
   td_sh "printf '' | td_pf_token_to_release 111"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
