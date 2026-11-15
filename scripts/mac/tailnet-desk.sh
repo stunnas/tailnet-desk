@@ -23,6 +23,10 @@ TD_RUSTDESK_SHA256_ARM64='e6d30fa1633d772c48935907c208ca4e555a856fb2038af3aaa87a
 TD_RUSTDESK_SHA256_X86_64='74d06e6b2e273a128e8d36313e30d47db2063f453a4235ed4d9e5cdfdf9be538'
 TD_RUSTDESK_TEAM='HZF9JMC8YN'               # Apple Developer ID team that signs RustDesk's app and disk images
 TD_RUSTDESK_APP='/Applications/RustDesk.app'
+# RustDesk's startup items, which its Install button ("For starting on boot") creates. Without them, "Start service"
+# only runs RustDesk's server until the next restart.
+TD_RUSTDESK_AGENT='/Library/LaunchAgents/com.carriez.RustDesk_server.plist'
+TD_RUSTDESK_DAEMON='/Library/LaunchDaemons/com.carriez.RustDesk_service.plist'
 TD_TAILSCALE_APP='/Applications/Tailscale.app'
 TD_TAILSCALE_V4='100.64.0.0/10'             # Tailscale's IPv4 range
 TD_TAILSCALE_V6='fd7a:115c:a1e0::/48'       # Tailscale's IPv6 range
@@ -303,6 +307,11 @@ td_rustdesk_exe() {
 td_signing_team() {
   /usr/bin/codesign --verify --strict "$1" 2>/dev/null || return 0
   /usr/bin/codesign -dv "$1" 2>&1 | td_team_from_codesign
+}
+
+# True when RustDesk's startup items are installed, so its server starts at every boot, even before anyone logs in.
+td_rustdesk_starts_at_boot() {
+  [ -f "$TD_RUSTDESK_AGENT" ] && [ -f "$TD_RUSTDESK_DAEMON" ]
 }
 
 # True when RustDesk's background server (the part that accepts connections) is running.

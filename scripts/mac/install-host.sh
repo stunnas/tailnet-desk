@@ -63,10 +63,11 @@ step 'Step 2 of 6: RustDesk'
 td_install_rustdesk
 
 step "Step 3 of 6: RustDesk's background service and permissions"
-if ! td_rustdesk_server_running; then
-  echo "RustDesk's background service isn't running yet. At this Mac:"
+if ! td_rustdesk_starts_at_boot || ! td_rustdesk_server_running; then
+  echo "RustDesk's system service isn't installed or running yet. At this Mac:"
   echo '  1. Open RustDesk from Applications. If macOS asks whether to open it, choose Open.'
-  echo '  2. When RustDesk asks to install its service, allow it and enter your Mac password.'
+  echo '  2. Under "For starting on boot, you need to install system service", click Install and enter your Mac'
+  echo '     password. ("Start service" alone only runs it until the next restart.)'
   echo '  3. Allow RustDesk in System Settings > Privacy & Security, under both Screen & System Audio Recording and'
   echo '     Accessibility. Quit and reopen RustDesk after each.'
   echo 'Then run this script again.'

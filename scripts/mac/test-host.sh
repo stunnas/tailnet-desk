@@ -43,6 +43,9 @@ rustdesk_findings() {
   [ -n "$exe" ] || return 0
   td_check "RustDesk is signed by its Apple team ($TD_RUSTDESK_TEAM)" 'reinstall it from github.com/rustdesk/rustdesk' \
     test "$(td_signing_team "$TD_RUSTDESK_APP")" = "$TD_RUSTDESK_TEAM"
+  td_check 'RustDesk starts at boot (its system service is installed)' \
+    'open RustDesk and click Install under "For starting on boot"; Start service alone lasts until the next restart' \
+    td_rustdesk_starts_at_boot
   td_check "RustDesk's background service is running" 'open RustDesk and allow its service' td_rustdesk_server_running
   td_rustdesk_server_running || return 0
 
