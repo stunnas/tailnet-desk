@@ -123,10 +123,9 @@ Then [check the host](#check-the-host) and go to the controller to connect.
 
 > **Partly tested.** The shared library's checks that don't touch the system are tested automatically on macOS's own
 > shell. On a real Mac that was already a host, `install-host.sh` (with `--keep-sleep`), `test-host.sh`,
-> `enable-pf.sh` and `undo-pf.sh` ran and worked, and the firewall check passed after a restart. Those runs came
-> before the latest changes to the pf loader and the signing check. Not yet run: a fresh install on a Mac without
-> RustDesk, the sleep step, and running `enable-pf.sh` a second time before `undo-pf.sh`. For a fresh install, the
-> manual path above is the tested route. See the [README's Status](../README.md#status).
+> `enable-pf.sh` and `undo-pf.sh` ran and worked, including `enable-pf.sh` twice before the undo, and the firewall
+> check passed after a restart. Not yet run: a fresh install on a Mac without RustDesk, and the sleep step. For a
+> fresh install, the manual path above is the tested route. See the [README's Status](../README.md#status).
 
 The script does the manual path's steps except the ones that need you: installing and signing in to Tailscale,
 turning off key expiry, allowing RustDesk's service and its two permissions, choosing the password and scanning the
