@@ -265,13 +265,35 @@ STUB
   [ "$status" -ne 0 ]
 }
 
-@test "when the boot time can't be read, the loader stops before touching pf" {
+@test "when the boot time can't be read, the loader stops before touching pf and keeps the old token" {
   make_loader
-  printf '999 \n' > "$dir/token"
+  printf '999 111\n' > "$dir/token"
   FAKE_BOOT= run /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh"
   [ "$status" -ne 0 ]
   [[ "$output" == *"Couldn't read the boot time"* ]] || false
   [ ! -e "$PFCTL_LOG" ]
+  [ "$(cat "$dir/token")" = '999 111' ]
+}
+
+@test "the pf loader empties its log before a run" {
+  make_loader
+  printf 'old error\n' > "$dir/load-pf.log"
+  FAKE_BOOT=111 /bin/bash "$BATS_TEST_TMPDIR/load-pf.sh" 2>> "$dir/load-pf.log"
+  [ ! -s "$dir/load-pf.log" ]
+}
+
+@test "td_pf_token_to_release releases only this boot's token, and says when it can't" {
+  td_sh "printf '1001 111\n' | td_pf_token_to_release 111"
+  [ "$status" -eq 0 ]
+  [ "$output" = 1001 ]
+  td_sh "printf '1001 111\n' | td_pf_token_to_release 222"
+  [ "$status" -eq 3 ]
+  [ -z "$output" ]
+  td_sh "printf '1001 111\n' | td_pf_token_to_release ''"
+  [ "$status" -eq 3 ]
+  td_sh "printf '' | td_pf_token_to_release 111"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
 }
 
 @test "td_boot_from_sysctl and td_pf_token_for_boot only accept a token from the same, known boot" {

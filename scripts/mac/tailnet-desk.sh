@@ -300,6 +300,19 @@ td_pf_token_for_boot() {
   awk -v boot="$1" '$1 ~ /^[0-9]+$/ && $2 != "" && $2 == boot { print $1; exit }'
 }
 
+# Which saved pf token the undo may release, from the token file's text (stdin) and the current boot ($1): prints the
+# token when it's from this boot. Returns 3 when a token was saved but can't be released safely (from another boot, or
+# the boot time is unknown), so the undo can say pf stays on until a restart. Returns 0 with no output when nothing was
+# saved.
+td_pf_token_to_release() {
+  local saved token
+  saved=$(cat)
+  [ -n "$(printf '%s' "$saved" | tr -d ' \t\r\n')" ] || return 0
+  token=$(printf '%s\n' "$saved" | td_pf_token_for_boot "$1")
+  [ -n "$token" ] || return 3
+  printf '%s\n' "$token"
+}
+
 # --- System reads --------------------------------------------------------------------------------------------
 
 # The Tailscale command line tool: the Standalone or App Store app's own binary, never one found through PATH.
@@ -463,17 +476,26 @@ td_pf_rules_loaded() {
 }
 
 # Undo for td_pf_enable: removes the rules, releases this step's pf reference (pf stays on if anything else uses it),
-# and deletes the startup item and files. Changes: the running packet filter, and the files td_pf_enable wrote.
+# and deletes the startup item and files. Returns 3, after saying why, when the reference couldn't be released, so pf
+# stays on until the Mac restarts. Changes: the running packet filter, and the files td_pf_enable wrote.
 td_pf_disable() {
   /usr/bin/sudo /bin/launchctl bootout system "$TD_PF_PLIST" 2> /dev/null || true
   /usr/bin/sudo /sbin/pfctl -a "$TD_PF_ANCHOR" -F all 2> /dev/null || true
-  local token boot
+  local token boot status=0 err
   boot=$(/usr/sbin/sysctl -n kern.boottime | td_boot_from_sysctl)
-  token=$(/usr/bin/sudo /bin/cat "$TD_PF_DIR/token" 2> /dev/null | td_pf_token_for_boot "$boot" || true)
-  # Never pfctl -d: that would stop pf for everything. Release only this step's own reference.
-  if [ -n "$token" ]; then /usr/bin/sudo /sbin/pfctl -X "$token" 2> /dev/null || true; fi
+  if token=$(/usr/bin/sudo /bin/cat "$TD_PF_DIR/token" 2> /dev/null | td_pf_token_to_release "$boot"); then
+    # Never pfctl -d: that would stop pf for everything. Release only this step's own reference.
+    if [ -n "$token" ] && ! err=$(/usr/bin/sudo /sbin/pfctl -X "$token" 2>&1); then
+      echo "Couldn't release this step's pf reference: $err" >&2
+      status=3
+    fi
+  else
+    echo "This step's pf reference was saved in an earlier boot (or the boot time can't be read), so it isn't released." >&2
+    status=3
+  fi
   /usr/bin/sudo /bin/rm -f "$TD_PF_PLIST" "$TD_PF_DIR/pf.rules" "$TD_PF_DIR/load-pf.sh" "$TD_PF_DIR/token" "$TD_PF_LOG"
   /usr/bin/sudo /bin/rmdir "$TD_PF_DIR" 2> /dev/null || true
+  return "$status"
 }
 
 # The loader the startup item runs as root. It takes a new pf reference first (pfctl -E, which keeps pf on until every
