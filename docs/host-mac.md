@@ -86,7 +86,7 @@ password). Menu names may differ slightly between versions.
 | Where | Setting | Set it to | Why |
 |---|---|---|---|
 | Security | Password | **Use permanent password**, then **Set permanent password** | Generate a random password of 20 or more characters in your password manager, save it there, and paste it in. Never reuse it, not even on another of your computers: one leak would then open both. It lets you connect when nobody is at the host. |
-| Security | Two-factor authentication | **On** | A QR code appears. In your authenticator app, tap **+**, scan it, and name the entry after this Mac. A stolen password alone is then useless. Don't photograph or share the QR code: it's the secret that makes the codes. |
+| Security | Two-factor authentication | **On** | A QR code appears. In your authenticator app, tap **+**, scan it, and name the entry after this Mac. A stolen password alone is then useless. Don't photograph or share the QR code: it's the secret that makes the codes. A controller that was trusted for two-factor skips the code from then on: remove it under **Manage trusted devices** in the same section. |
 | Security | Accept sessions | **via password** | A session starts on the password and code alone. Nobody has to be at the host to click Accept. |
 | Security | Deny LAN discovery | **On** (ticked) | The Mac stops announcing itself to other RustDesk apps on your home network. |
 | Security | Enable direct IP access | **On**, port **21118** | The controller connects straight to the host's Tailscale address, not through RustDesk's public servers. |
@@ -279,3 +279,4 @@ tests that prove the setup works must run from the controller.
 | "Your ip is blocked by the peer" on the controller | The controller's address isn't on the whitelist, or Tailscale is off on the controller. | Check the controller's `100.x` address and add it (manual step 3, or the script's second run). |
 | The Mac can't be reached after a while | It went to sleep. | See [step 4](#4-stay-awake). A closed MacBook sleeps unless something keeps it awake. |
 | Lost the phone with the authenticator app | You can't pass two-factor. | Sit at the host, turn two-factor off and on in RustDesk's Security settings, and scan the new QR code. |
+| Lost a controller (laptop or phone) | If it saved the password or was trusted for two-factor, anyone who unlocks it can connect. | At the host, remove it under **Manage trusted devices** (Security settings), change the permanent password, and remove its `100.x` address from the whitelist. Also remove it from the [Tailscale admin console](https://login.tailscale.com/admin/machines). |
