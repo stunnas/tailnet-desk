@@ -68,8 +68,10 @@ Tailscale. So:
    RustDesk sites hand out malware, so don't use a search ad.
 2. Open the `.dmg` and drag **RustDesk** into **Applications**. Open it from Applications; if macOS asks, choose
    **Open**.
-3. RustDesk asks to **install its service** (the part that runs in the background, so you can reach the Mac when
-   nobody has opened RustDesk). Allow it and enter your Mac password.
+3. RustDesk shows "For starting on boot, you need to install system service". Click **Install** and enter your Mac
+   password. This is the part that runs in the background and starts at every boot, so you can reach the Mac when
+   nobody has opened RustDesk, even at the login screen. macOS then says "Background Items Added". A **Start
+   service** button alone isn't enough: it only runs RustDesk until the next restart.
 4. Give RustDesk the two macOS permissions it needs. In System Settings → Privacy & Security:
    - **Screen & System Audio Recording**: turn on RustDesk. Without it, the controller sees a blank screen.
    - **Accessibility**: turn on RustDesk. Without it, the controller sees the screen but can't click or type.
@@ -257,7 +259,7 @@ tests that prove the setup works must run from the controller.
 | "Couldn't download ..." | The script couldn't reach GitHub. Nothing was installed. | Check the internet connection and try again later. |
 | "The download's SHA-256 doesn't match the pinned one" or "... isn't signed by RustDesk's Apple team" | The file from GitHub isn't the one this repo was tested with. Nothing was installed. | Don't install RustDesk by hand from that download. Try again later, and if it keeps happening, [open an issue](https://github.com/stunnas/tailnet-desk/issues). |
 | "Unsupported Mac type" | The Mac is neither an Apple-chip nor an Intel Mac. | Use the manual path. |
-| "RustDesk's background service isn't running yet" | RustDesk hasn't been opened, or its service wasn't allowed. | Do [manual step 2](#2-rustdesk), items 2 to 5, then run the script again. |
+| "RustDesk's system service isn't installed or running yet" | RustDesk hasn't been opened, or its system service wasn't installed. | Do [manual step 2](#2-rustdesk), items 2 to 5, then run the script again. |
 | "RustDesk refused to read the setting ..." or "RustDesk couldn't read the setting ..." | RustDesk's command line didn't answer. | Quit and reopen RustDesk, check it's allowed in the background, then run the script again. |
 | "RustDesk didn't take the setting ..." | RustDesk refused a setting, usually because it isn't running. | Open RustDesk, then run the script again. |
 | "The pf rules didn't load" | The firewall step's startup item didn't load its rules. | Run `./undo-pf.sh`, then `./enable-pf.sh` again. If it still fails, [open an issue](https://github.com/stunnas/tailnet-desk/issues). |
@@ -270,6 +272,7 @@ tests that prove the setup works must run from the controller.
 | Tailscale is signed in | Click the Tailscale icon in the menu bar and choose **Log in**. |
 | RustDesk is installed | Install it ([manual step 2](#2-rustdesk)) into Applications. |
 | RustDesk is signed by its Apple team | The app in Applications isn't RustDesk's own. Delete it and install it again from [manual step 2](#2-rustdesk). |
+| RustDesk starts at boot (its system service is installed) | Open RustDesk and click **Install** under "For starting on boot". "Start service" alone only lasts until the next restart, so an unattended Mac becomes unreachable after a power cut or update. |
 | RustDesk's background service is running | Open RustDesk and allow its service; check it's allowed in the background. |
 | Given controller address ... / Whitelist entry ... is one Tailscale address | Replace it with the controller's single `100.x` address, no ranges: run `./install-host.sh --controller-ip` with it, or edit the whitelist in RustDesk. This fails even while direct IP access is off, so turning it on later can't bring the entry back. |
 | Whitelist doesn't include this Mac's own address | Remove the host's own `100.x` address from the whitelist: only controllers belong there. |
@@ -282,6 +285,7 @@ tests that prove the setup works must run from the controller.
 
 | What you see | What it means | Fix |
 |---|---|---|
+| "Not ready. Please check your connection" at the bottom of RustDesk | RustDesk can't reach its ID server, because the ID and relay servers are set to `127.0.0.1` on purpose. | Nothing: connections by Tailscale address don't need it. |
 | The controller sees a black or blank screen | RustDesk isn't allowed to record the screen. | Allow it under Screen & System Audio Recording, then quit and reopen RustDesk. |
 | The controller sees the screen but can't click or type | RustDesk isn't allowed to control the Mac. | Allow it under Accessibility, then quit and reopen RustDesk. If it's already on, remove RustDesk with **-** and add it again with **+**. |
 | "Your ip is blocked by the peer" on the controller | The controller's address isn't on the whitelist, or Tailscale is off on the controller. | Check the controller's `100.x` address and add it (manual step 3, or the script's second run). |
