@@ -60,6 +60,13 @@ check_text() {
   [[ "$output" == *"IPv6 address"* ]]
 }
 
+@test "passes Tailscale's IPv6 range itself, written as fd7a:115c:a1e0::/48" {
+  check_text 'pass in quick inet6 proto tcp from fd7a:115c:a1e0::/48 to fd7a:115c:a1e0::/48 port 21118'
+  [ "$status" -eq 0 ]
+  check_text 'Its IPv6 is FD7A:115C:A1E0::9'
+  [ "$status" -eq 1 ]
+}
+
 @test "fails a MagicDNS name" {
   check_text 'Connect to my-desktop.tail1234.ts.net'
   [ "$status" -eq 1 ]
