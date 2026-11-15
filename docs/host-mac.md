@@ -123,9 +123,10 @@ Then [check the host](#check-the-host) and go to the controller to connect.
 
 > **Partly tested.** The shared library's checks that don't touch the system are tested automatically on macOS's own
 > shell. On a real Mac that was already a host, `install-host.sh` (with `--keep-sleep`), `test-host.sh`,
-> `enable-pf.sh` and `undo-pf.sh` ran and worked, including `enable-pf.sh` twice before the undo, and the firewall
-> check passed after a restart. Not yet run: a fresh install on a Mac without RustDesk, and the sleep step. For a
-> fresh install, the manual path above is the tested route. See the [README's Status](../README.md#status).
+> `enable-pf.sh` and `undo-pf.sh` ran and worked, including `enable-pf.sh` twice before the undo. The firewall check
+> passed after a restart with an earlier version of the pf step; the current one's restart handling is tested only
+> against stand-ins so far. Not yet run: a fresh install on a Mac without RustDesk, and the sleep step. For a fresh
+> install, the manual path above is the tested route. See the [README's Status](../README.md#status).
 
 The script does the manual path's steps except the ones that need you: installing and signing in to Tailscale,
 turning off key expiry, allowing RustDesk's service and its two permissions, choosing the password and scanning the
@@ -289,6 +290,7 @@ tests that prove the setup works must run from the controller.
 | "The pf rules didn't load" | The firewall step's startup item didn't load its rules. Its errors are in the log file the message names. | Run `./undo-pf.sh`, then `./enable-pf.sh` again. If it still fails, [open an issue](https://github.com/stunnas/tailnet-desk/issues) with what the log says. |
 | "The firewall step isn't installed, so there is nothing to undo" | `undo-pf.sh` found nothing of the pf step. | Nothing to do. |
 | "Something of the firewall step is still there" | `undo-pf.sh` couldn't remove all of it. | Restart the Mac and run `./undo-pf.sh` again. |
+| Private Relay stays "Unavailable" after the undo | pf is still on: something else uses it, or this step's reference couldn't be released (it's tied to the current boot, and may not match after the Mac slept). | Restart the Mac. If Private Relay is still unavailable, something else on the Mac uses pf. |
 
 ### FAIL lines from test-host.sh
 
