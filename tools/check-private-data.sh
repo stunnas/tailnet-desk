@@ -16,8 +16,9 @@
 # ("123 456 789"), which could be RustDesk IDs. check-private-data: allow
 #
 # Usage: tools/check-private-data.sh [file ...]
-#   With files: checks those (each must exist). Without: every file git tracks, except tests/fixtures/ (planted
-#   values the CI checks expect to fail) and this check's own tests. Runs from the repository root either way.
+#   With files: checks those paths, read from the current folder (each must exist). Without: every file git tracks,
+#   from the repository root, except tests/fixtures/ (planted values the CI checks expect to fail) and this check's
+#   own tests.
 set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
