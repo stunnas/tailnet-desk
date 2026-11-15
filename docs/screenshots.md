@@ -36,3 +36,36 @@ None are taken yet. The three shots of script output (`install-host-output.png`,
 | `rustdesk-connect-box.png` | Controller's **Control Remote Desktop** box | Controller 3 |
 | `rustdesk-2fa-prompt.png` | The 6-digit code prompt when connecting | Controller 3 |
 | `test-from-controller-output.png` | `Test-FromController.ps1` all PASS (addresses covered) | Controller tests |
+
+## Shot list: Mac
+
+None are taken yet. The script-output shots wait until the Mac scripts have run end to end.
+
+| File | Shows | Guide and step |
+|---|---|---|
+| `tailscale-mac-extension.png` | macOS asking to allow Tailscale's network extension | Host manual 1, controller 1 |
+| `rustdesk-mac-install-service.png` | RustDesk's prompt to install its service | Host manual 2 |
+| `privacy-screen-recording.png` | Privacy & Security → Screen & System Audio Recording with RustDesk on | Host manual 2 |
+| `privacy-accessibility.png` | Privacy & Security → Accessibility with RustDesk on | Host manual 2 |
+| `rustdesk-mac-security.png` | RustDesk's Security settings (ID and password covered) | Host manual 3 |
+| `battery-prevent-sleep.png` | Battery → Options with "Prevent automatic sleeping on the power adapter" on | Host manual 4 |
+| `macos-firewall-options.png` | Network → Firewall → Options with stealth mode on | Optional macOS firewall |
+| `install-host-mac-output.png` | The end of `install-host.sh` with PASS lines (addresses covered) | Host script path 2 |
+| `test-host-mac-output.png` | `test-host.sh` all PASS | Check the host |
+
+Save these in `docs/images/mac/`.
+
+## Shot list: iPhone
+
+Taken on the iPhone (the owner takes these: press the side button and volume up together). Crop the status bar out:
+it can show the carrier, time and notifications.
+
+| File | Shows | Guide and step |
+|---|---|---|
+| `tailscale-ios-connected.png` | Tailscale app showing Connected (addresses covered) | iPhone 1 |
+| `rustdesk-ios-app-store.png` | The App Store page for RustDesk Remote Desktop by Purslane Limited | iPhone 2 |
+| `rustdesk-ios-remote-id.png` | The Remote ID box with an example `100.x` address typed in | iPhone 3 |
+| `rustdesk-ios-2fa-prompt.png` | The 6-digit code prompt when connecting | iPhone 3 |
+| `rustdesk-ios-display-menu.png` | The session's display menu with frame rate and image quality | iPhone 3 |
+
+Save these in `docs/images/iphone/`.
