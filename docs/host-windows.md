@@ -294,7 +294,7 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 | RustDesk firewall rules exist | Reinstall RustDesk; its installer creates them. |
 | Rule '...' only on Tailscale | Usually after a RustDesk update. Run [manual firewall commands 3 and 4](#3-firewall-let-rustdesk-answer-only-through-tailscale) again, or `Install-Host.ps1`. If the rule has another name, the manual commands won't find it: run `Install-Host.ps1`, or limit it to Tailscale in Windows Defender Firewall → Advanced settings, as for a port rule. If the rule comes from Group Policy (a work or school PC), only that policy's owner can change it. |
 | Windows Firewall blocks unasked-for connections on the ... profile | Set **Inbound connections** back to **Block (default)** for that profile in Windows Defender Firewall → Advanced settings → Windows Defender Firewall Properties. |
-| Port rule: ... | A rule lets any program in on port 21118 (or on all ports) from every network. Find it in Windows Defender Firewall → Advanced settings → Inbound Rules, and delete it or limit it to Tailscale. |
+| Port rule: ... | A rule lets any program in on port 21118 (or on all ports) from every network. Find it in Windows Defender Firewall → Advanced settings → Inbound Rules, and delete it or limit it to Tailscale. Not counted: rules for one program or one Windows app package (Xbox, Start and the like have an owner), and Tailscale's own Tailscale-In rule, which only covers this PC's Tailscale addresses. |
 
 ### Other problems
 
