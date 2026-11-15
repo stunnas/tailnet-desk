@@ -7,7 +7,7 @@ show, for example `docs/images/windows/rustdesk-security-unlock.png`.
 
 Check every screenshot by hand before committing it: the private data check skips images. Cover or crop out:
 
-- Tailscale addresses (`100.x`), home addresses (`192.168.x`), and any IPv6 address.
+- Tailscale addresses (`100.x`), home addresses (`192.168.x`, `10.x`, `172.16.x` to `172.31.x`), and any IPv6 address.
 - RustDesk IDs and one-time passwords shown in RustDesk's main window.
 - Two-factor QR codes. Never commit one, even blurred: show the step with the code area cropped out.
 - Computer names, account names, email addresses and anything else that identifies a person or a device.
