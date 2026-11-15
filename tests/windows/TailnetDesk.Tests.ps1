@@ -609,19 +609,21 @@ Describe 'Test-HomeIPv4' {
 }
 
 Describe 'Get-RustDeskFirewallRule' {
+    # The mocks write their errors with -ErrorAction Continue, so they stay non-terminating as a real cmdlet's do under
+    # -ErrorAction SilentlyContinue, even when the caller's preference is Stop (as in GitHub Actions' pwsh steps).
     BeforeEach {
         Mock -ModuleName TailnetDesk Get-NetFirewallApplicationFilter { }
     }
     It 'treats a rule name that does not exist as no rule' {
-        Mock -ModuleName TailnetDesk Get-NetFirewallRule { Write-Error -Message 'No rule' -Category ObjectNotFound }
+        Mock -ModuleName TailnetDesk Get-NetFirewallRule { Write-Error -Message 'No rule' -Category ObjectNotFound -ErrorAction Continue }
         @(Get-RustDeskFirewallRule).Count | Should -Be 0
     }
     It 'stops on any other lookup error, such as access denied' {
-        Mock -ModuleName TailnetDesk Get-NetFirewallRule { Write-Error -Message 'Access denied' -Category PermissionDenied }
+        Mock -ModuleName TailnetDesk Get-NetFirewallRule { Write-Error -Message 'Access denied' -Category PermissionDenied -ErrorAction Continue }
         { Get-RustDeskFirewallRule } | Should -Throw '*Access denied*'
     }
     It "finds RustDesk's rules under another name through their program, and only RustDesk's" {
-        Mock -ModuleName TailnetDesk Get-NetFirewallRule { Write-Error -Message 'No rule' -Category ObjectNotFound }
+        Mock -ModuleName TailnetDesk Get-NetFirewallRule { Write-Error -Message 'No rule' -Category ObjectNotFound -ErrorAction Continue }
         Mock -ModuleName TailnetDesk Get-NetFirewallApplicationFilter { @(
                 [pscustomobject]@{ Program = 'C:\Program Files\RustDesk\rustdesk.exe'; Rule = 'renamed' }
                 [pscustomobject]@{ Program = 'C:\Tools\browser.exe'; Rule = 'browser' }) }
