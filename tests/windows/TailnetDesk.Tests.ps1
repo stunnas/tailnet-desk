@@ -1,9 +1,32 @@
 # Pester 5 tests for scripts/windows/TailnetDesk.psm1. They change nothing on the system: the checks are pure, and the
-# installer test mocks every system call. CI runs them in PowerShell 7 on Linux and Windows PowerShell 5.1 on Windows.
-# Run locally: Invoke-Pester -Path tests/windows
+# tests of system functions mock every system call. CI runs them in PowerShell 7 on Linux and Windows PowerShell 5.1
+# on Windows. Run locally: Invoke-Pester -Path tests/windows
 
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '../../scripts/windows/TailnetDesk.psm1') -Force
+
+    # Off Windows these commands don't exist, and Pester can only mock a command that does. The stubs are never run:
+    # every test that reaches one mocks it. On Windows the real commands are mocked instead.
+    if (-not (Get-Command Get-NetAdapter -ErrorAction SilentlyContinue)) {
+        function global:Get-NetAdapter { [CmdletBinding()] param([string[]]$Name) throw 'stub' }
+    }
+    if (-not (Get-Command Set-NetFirewallRule -ErrorAction SilentlyContinue)) {
+        function global:Set-NetFirewallRule {
+            [CmdletBinding()] param([Parameter(ValueFromPipeline)]$InputObject, [string[]]$InterfaceAlias, $EdgeTraversalPolicy)
+            process { throw 'stub' }
+        }
+    }
+    if (-not (Get-Command Get-Service -ErrorAction SilentlyContinue)) {
+        function global:Get-Service { [CmdletBinding()] param([string[]]$Name) throw 'stub' }
+    }
+
+    # A stand-in for rustdesk.exe: prints a value for --option <key>, and exits 3 for the key 'broken'.
+    $script:fakeExe = Join-Path $TestDrive 'fake-rustdesk.ps1'
+    Set-Content -LiteralPath $script:fakeExe -Value @(
+        'if ($args[1] -eq ''broken'') { exit 3 }'
+        '"value-of-$($args[1])"'
+        'exit 0'
+    )
 }
 
 Describe 'Test-TailscaleIPv4' {
@@ -19,6 +42,16 @@ Describe 'Test-TailscaleIPv4' {
         # In the last octet, so a \d pattern would let it through ([int] reads it as a digit), not drop it.
         Test-TailscaleIPv4 -Address "100.64.0.1$([char]0x0660)" -ErrorVariable e | Should -BeFalse # check-private-data: allow
         $e | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Test-IPv4' {
+    It 'accepts <_>' -ForEach @('192.168.0.10', '0.0.0.0', '100.64.0.10') {
+        Test-IPv4 -Address $_ | Should -BeTrue
+    }
+    # Malformed values below are made up. check-private-data: allow
+    It 'rejects <_>' -ForEach @('256.1.1.1', '192.168.0', 'myhost', ' 192.168.0.10', '192.168.000.10', '', '192.168.0.10/24') { # check-private-data: allow
+        Test-IPv4 -Address $_ | Should -BeFalse
     }
 }
 
@@ -79,6 +112,15 @@ Describe 'Get-HostOption' {
     }
 }
 
+Describe 'Get-HostOptionKey' {
+    It 'lists the whitelist and every setting Get-HostOption sets, once each' {
+        $keys = @(Get-HostOptionKey)
+        $keys | Should -Contain 'whitelist'
+        foreach ($k in (Get-HostOption -ControllerIp '100.64.0.11').Keys) { $keys | Should -Contain $k }
+        @($keys | Select-Object -Unique).Count | Should -Be $keys.Count
+    }
+}
+
 Describe 'Test-OptionValue' {
     It 'matches equal values, ignoring spaces around them' {
         Test-OptionValue -Key 'relay-server' -Want '127.0.0.1' -Have " 127.0.0.1`r`n" | Should -BeTrue
@@ -126,6 +168,14 @@ Describe 'Get-HostSettingFinding' {
         $f = Get-HostSettingFinding -OwnIp '100.64.0.10' -Current (New-Current @{ 'direct-server' = 'Y'; whitelist = '100.64.0.10,100.64.0.11' })
         @($f | Where-Object { -not $_.Pass }).Check | Should -Contain "Whitelist doesn't include this PC's own address"
     }
+    It 'fails a range left in the whitelist while direct access is off, so turning it on later is caught' {
+        $f = Get-HostSettingFinding -Current (New-Current @{ 'direct-server' = ''; whitelist = '100.64.0.0/10' })
+        @($f | Where-Object { -not $_.Pass }).Check | Should -Contain "Whitelist entry '100.64.0.0/10' is one Tailscale address"
+    }
+    It "fails this PC's own address in the whitelist while direct access is off" {
+        $f = Get-HostSettingFinding -OwnIp '100.64.0.10' -Current (New-Current @{ 'direct-server' = ''; whitelist = '100.64.0.10' })
+        @($f | Where-Object { -not $_.Pass }).Check | Should -Contain "Whitelist doesn't include this PC's own address"
+    }
     It 'fails when the whitelist differs from the given controllers' {
         $f = Get-HostSettingFinding -ControllerIp '100.64.0.12' -Current (New-Current @{ 'direct-server' = 'Y'; whitelist = '100.64.0.11' })
         @($f | Where-Object { -not $_.Pass }).Check | Should -Contain 'RustDesk setting whitelist'
@@ -168,25 +218,235 @@ Describe 'Select-ReleaseAsset' {
 }
 
 Describe 'Install-RustDesk' {
-    It 'installs nothing and cleans up when the download does not match the pinned SHA-256' {
-        Mock -ModuleName TailnetDesk Get-RustDeskExe { $null }
+    BeforeEach {
+        # Not installed at the first look; installed once the (mocked) installer has run.
+        $script:installed = $false
+        Mock -ModuleName TailnetDesk Get-RustDeskExe { if ($script:installed) { 'rustdesk.exe' } else { $null } }
         Mock -ModuleName TailnetDesk Invoke-RestMethod {
             $s = Get-TailnetDeskSetting
             [pscustomobject]@{ tag_name = $s.RustDeskVersion; assets = @([pscustomobject]@{
-                        name = $s.RustDeskAsset; browser_download_url = "https://github.com/rustdesk/rustdesk/releases/download/$($s.RustDeskVersion)/$($s.RustDeskAsset)" }) }
+                        name = $s.RustDeskAsset; browser_download_url = "https://github.com/$($s.RustDeskRepo)/releases/download/$($s.RustDeskVersion)/$($s.RustDeskAsset)" }) }
         }
         Mock -ModuleName TailnetDesk New-PrivateFolder { 'private-folder' }
         Mock -ModuleName TailnetDesk Invoke-WebRequest { }
         Mock -ModuleName TailnetDesk Open-LockedFile { New-Object IO.MemoryStream }
-        Mock -ModuleName TailnetDesk Get-FileHash { [pscustomobject]@{ Hash = 'C' * 64 } }
-        Mock -ModuleName TailnetDesk Start-Process { throw 'must not run' }
+        Mock -ModuleName TailnetDesk Get-FileHash { [pscustomobject]@{ Hash = (Get-TailnetDeskSetting).RustDeskSha256.ToUpperInvariant() } }
+        $script:exitCode = 0
+        Mock -ModuleName TailnetDesk Start-Process {
+            $script:installed = ($script:exitCode -eq 0)
+            [pscustomobject]@{ ExitCode = $script:exitCode } | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { } -PassThru
+        }
+        Mock -ModuleName TailnetDesk Get-Service { [pscustomobject]@{ Status = 'Running' } }
+        Mock -ModuleName TailnetDesk Start-Sleep { }
         Mock -ModuleName TailnetDesk Remove-Item { }
-
+        Mock -ModuleName TailnetDesk Write-Host { }
+    }
+    It 'installs nothing and cleans up when the download does not match the pinned SHA-256' {
+        Mock -ModuleName TailnetDesk Get-FileHash { [pscustomobject]@{ Hash = 'C' * 64 } }
         { Install-RustDesk } | Should -Throw "*doesn't match the pinned one*"
         Should -Invoke -ModuleName TailnetDesk Start-Process -Times 0 -Exactly
         Should -Invoke -ModuleName TailnetDesk Open-LockedFile -Times 1 -Exactly
         Should -Invoke -ModuleName TailnetDesk Get-FileHash -Times 1 -Exactly -ParameterFilter { $null -ne $InputStream }
         Should -Invoke -ModuleName TailnetDesk Remove-Item -Times 1 -Exactly -ParameterFilter { $LiteralPath -eq 'private-folder' }
+    }
+    It 'runs the silent install when the hash matches, then deletes the download folder' {
+        Install-RustDesk
+        Should -Invoke -ModuleName TailnetDesk Start-Process -Times 1 -Exactly -ParameterFilter { "$ArgumentList" -eq '--silent-install' }
+        Should -Invoke -ModuleName TailnetDesk Remove-Item -Times 1 -Exactly -ParameterFilter { $LiteralPath -eq 'private-folder' }
+    }
+    It "throws when the installer fails, and still deletes the download folder" {
+        $script:exitCode = 5
+        { Install-RustDesk } | Should -Throw '*installer failed (exit code 5)*'
+        Should -Invoke -ModuleName TailnetDesk Remove-Item -Times 1 -Exactly
+    }
+    It "throws when the service doesn't start within a minute" {
+        Mock -ModuleName TailnetDesk Get-Service { [pscustomobject]@{ Status = 'Stopped' } }
+        # Each look at the clock is 10 seconds later, so the minute runs out without waiting.
+        $script:clock = [datetime]'2026-01-01'
+        Mock -ModuleName TailnetDesk Get-Date { $script:clock = $script:clock.AddSeconds(10); $script:clock }
+        { Install-RustDesk } | Should -Throw "*service didn't start within a minute*"
+    }
+    It 'creates no folder and downloads nothing when the release is refused' {
+        Mock -ModuleName TailnetDesk Invoke-RestMethod { [pscustomobject]@{ tag_name = 'x'; assets = @() } }
+        { Install-RustDesk } | Should -Throw '*no file named*'
+        Should -Invoke -ModuleName TailnetDesk New-PrivateFolder -Times 0 -Exactly
+        Should -Invoke -ModuleName TailnetDesk Invoke-WebRequest -Times 0 -Exactly
+    }
+    It 'downloads and installs nothing when no folder was made (-WhatIf)' {
+        Mock -ModuleName TailnetDesk New-PrivateFolder { $null }
+        Install-RustDesk
+        Should -Invoke -ModuleName TailnetDesk Invoke-WebRequest -Times 0 -Exactly
+        Should -Invoke -ModuleName TailnetDesk Start-Process -Times 0 -Exactly
+    }
+    It 'does nothing when RustDesk is already installed' {
+        $script:installed = $true
+        Install-RustDesk
+        Should -Invoke -ModuleName TailnetDesk Invoke-RestMethod -Times 0 -Exactly
+    }
+    It 'warns instead of failing when the download folder cannot be deleted' {
+        Mock -ModuleName TailnetDesk Remove-Item { throw 'in use' }
+        Mock -ModuleName TailnetDesk Write-Warning { }
+        Install-RustDesk
+        Should -Invoke -ModuleName TailnetDesk Write-Warning -Times 1 -Exactly -ParameterFilter { $Message -like '*private-folder*' }
+    }
+}
+
+Describe 'New-PrivateFolder' {
+    It 'refuses a folder that is a junction or link, before reading its owner or changing permissions' {
+        Mock -ModuleName TailnetDesk Get-ProgramDataPath { $TestDrive }
+        Mock -ModuleName TailnetDesk Test-Path { $true }
+        Mock -ModuleName TailnetDesk Get-Item { [pscustomobject]@{ Attributes = [IO.FileAttributes]'Directory, ReparsePoint' } }
+        { New-PrivateFolder } | Should -Throw '*is a link to another folder*'
+        Should -Invoke -ModuleName TailnetDesk Get-Item -Times 1 -Exactly
+    }
+}
+
+Describe 'Get-TailscaleIPv4' {
+    BeforeAll {
+        # A stand-in for tailscale.exe that prints whatever $env:FAKE_TAILSCALE_OUT holds.
+        $script:fakeTailscale = Join-Path $TestDrive 'fake-tailscale.ps1'
+        Set-Content -LiteralPath $script:fakeTailscale -Value '$env:FAKE_TAILSCALE_OUT'
+    }
+    AfterEach { Remove-Item Env:\FAKE_TAILSCALE_OUT -ErrorAction SilentlyContinue }
+    It 'returns the address Tailscale prints' {
+        Mock -ModuleName TailnetDesk Get-TailscaleExe { $script:fakeTailscale }
+        $env:FAKE_TAILSCALE_OUT = "100.64.0.10`r`n"
+        Get-TailscaleIPv4 | Should -Be '100.64.0.10'
+    }
+    It 'returns nothing for no output, extra lines, or Tailscale not installed' {
+        Mock -ModuleName TailnetDesk Get-TailscaleExe { $script:fakeTailscale }
+        $env:FAKE_TAILSCALE_OUT = ''
+        Get-TailscaleIPv4 | Should -BeNullOrEmpty
+        $env:FAKE_TAILSCALE_OUT = "100.64.0.10`nLogged out."
+        Get-TailscaleIPv4 | Should -BeNullOrEmpty
+        Mock -ModuleName TailnetDesk Get-TailscaleExe { $null }
+        Get-TailscaleIPv4 | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Get-RustDeskOption' {
+    It "returns each setting RustDesk prints" {
+        $v = Get-RustDeskOption -Exe $script:fakeExe -Key @('whitelist', 'relay-server')
+        $v['whitelist'] | Should -Be 'value-of-whitelist'
+        $v['relay-server'] | Should -Be 'value-of-relay-server'
+    }
+    It 'throws when RustDesk fails to read a setting, instead of treating it as empty' {
+        { Get-RustDeskOption -Exe $script:fakeExe -Key @('broken') } | Should -Throw "*couldn't read the setting broken (exit code 3)*"
+    }
+}
+
+Describe 'Set-RustDeskOption' {
+    It "throws when RustDesk doesn't take a setting" {
+        Mock -ModuleName TailnetDesk Get-RustDeskOption { @{ 'relay-server' = 'rs-ny.rustdesk.com' } }
+        { Set-RustDeskOption -Exe $script:fakeExe -Option ([ordered]@{ 'relay-server' = '127.0.0.1' }) } |
+            Should -Throw "*didn't take the setting relay-server*"
+    }
+    It 'passes when every setting reads back as written' {
+        Mock -ModuleName TailnetDesk Get-RustDeskOption { @{ 'relay-server' = '127.0.0.1' } }
+        { Set-RustDeskOption -Exe $script:fakeExe -Option ([ordered]@{ 'relay-server' = '127.0.0.1' }) } | Should -Not -Throw
+    }
+    It 'changes and reads nothing with -WhatIf' {
+        Mock -ModuleName TailnetDesk Get-RustDeskOption { throw 'must not run' }
+        Set-RustDeskOption -Exe $script:fakeExe -Option ([ordered]@{ 'relay-server' = '127.0.0.1' }) -WhatIf
+        Should -Invoke -ModuleName TailnetDesk Get-RustDeskOption -Times 0 -Exactly
+    }
+}
+
+Describe 'Firewall rule selection' {
+    It 'keeps enabled Allow rules, in the named direction only' {
+        Test-AllowRule -Rule ([pscustomobject]@{ Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound' }) -Direction Inbound | Should -BeTrue
+        Test-AllowRule -Rule ([pscustomobject]@{ Action = 'Allow'; Enabled = 'True'; Direction = 'Outbound' }) | Should -BeTrue
+        Test-AllowRule -Rule ([pscustomobject]@{ Action = 'Allow'; Enabled = 'True'; Direction = 'Outbound' }) -Direction Inbound | Should -BeFalse
+    }
+    It 'drops disabled rules and Block rules' {
+        Test-AllowRule -Rule ([pscustomobject]@{ Action = 'Allow'; Enabled = 'False'; Direction = 'Inbound' }) | Should -BeFalse
+        Test-AllowRule -Rule ([pscustomobject]@{ Action = 'Block'; Enabled = 'True'; Direction = 'Inbound' }) | Should -BeFalse
+    }
+    It 'matches port filters that let TCP in on the direct port: <Name>' -ForEach @(
+        @{ Name = 'TCP range'; Protocol = 'TCP'; LocalPort = @('21000-22000') }
+        @{ Name = 'any protocol, any port'; Protocol = 'Any'; LocalPort = @('Any') }
+        @{ Name = 'one of several ports'; Protocol = 'TCP'; LocalPort = @('80', '21118') }
+    ) {
+        Test-PortFilterMatch -Filter ([pscustomobject]@{ Protocol = $Protocol; LocalPort = $LocalPort }) -Port 21118 | Should -BeTrue
+    }
+    It 'leaves out port filters that do not: <Name>' -ForEach @(
+        @{ Name = 'UDP only'; Protocol = 'UDP'; LocalPort = @('21118') }
+        @{ Name = 'another TCP port'; Protocol = 'TCP'; LocalPort = @('80') }
+        @{ Name = 'ICMP'; Protocol = 'ICMPv4'; LocalPort = @('Any') }
+    ) {
+        Test-PortFilterMatch -Filter ([pscustomobject]@{ Protocol = $Protocol; LocalPort = $LocalPort }) -Port 21118 | Should -BeFalse
+    }
+}
+
+Describe 'Assert-OnlyNotFound' {
+    BeforeAll {
+        function New-TestError([Management.Automation.ErrorCategory]$Category) {
+            New-Object Management.Automation.ErrorRecord ([Exception]'test'), 'TestError', $Category, $null
+        }
+    }
+    It 'lets "not found" errors and no errors through' {
+        { Assert-OnlyNotFound -ErrorRecord @(New-TestError ObjectNotFound) } | Should -Not -Throw
+        { Assert-OnlyNotFound -ErrorRecord @() } | Should -Not -Throw
+        { Assert-OnlyNotFound -ErrorRecord $null } | Should -Not -Throw
+    }
+    It 'throws any other error, such as access denied' {
+        { Assert-OnlyNotFound -ErrorRecord @((New-TestError ObjectNotFound), (New-TestError PermissionDenied)) } | Should -Throw
+    }
+}
+
+Describe 'Set-RustDeskFirewallToTailscale' {
+    BeforeEach {
+        Mock -ModuleName TailnetDesk Get-NetAdapter { [pscustomobject]@{ Name = 'Tailscale' } }
+        Mock -ModuleName TailnetDesk Set-NetFirewallRule { } -RemoveParameterType InputObject
+    }
+    It 'throws when there is no Tailscale adapter, and changes nothing' {
+        Mock -ModuleName TailnetDesk Get-NetAdapter { }
+        { Set-RustDeskFirewallToTailscale } | Should -Throw "*No network adapter named 'Tailscale'*"
+        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 0 -Exactly
+    }
+    It 'throws when RustDesk has no firewall rules' {
+        Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @() }
+        { Set-RustDeskFirewallToTailscale } | Should -Throw '*No RustDesk firewall rules found*'
+    }
+    It 'switches a DeferToUser rule to Block and limits every rule to Tailscale' {
+        Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @(
+                [pscustomobject]@{ DisplayName = 'RustDesk Service'; Direction = 'Inbound'; EdgeTraversalPolicy = 'DeferToUser' }
+                [pscustomobject]@{ DisplayName = 'RustDesk Service'; Direction = 'Outbound'; EdgeTraversalPolicy = 'Block' }) }
+        Set-RustDeskFirewallToTailscale
+        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 1 -Exactly -ParameterFilter { "$EdgeTraversalPolicy" -eq 'Block' }
+        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 2 -Exactly -ParameterFilter { "$InterfaceAlias" -eq 'Tailscale' }
+    }
+}
+
+Describe 'Set-RustDeskFirewallToAny' {
+    BeforeEach { Mock -ModuleName TailnetDesk Set-NetFirewallRule { } -RemoveParameterType InputObject }
+    It 'throws when there are no rules, so the undo never reports a change it did not make' {
+        Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @() }
+        { Set-RustDeskFirewallToAny } | Should -Throw '*nothing to undo*'
+    }
+    It 'puts every rule back on every adapter' {
+        Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @([pscustomobject]@{ DisplayName = 'rustdesk.exe'; Direction = 'Inbound' }) }
+        Set-RustDeskFirewallToAny
+        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 1 -Exactly -ParameterFilter { "$InterfaceAlias" -eq 'Any' }
+    }
+}
+
+Describe 'Get-FirewallProfileFinding' {
+    It 'passes a profile that is on and blocks by default' {
+        $f = @(Get-FirewallProfileFinding -FirewallProfile @([pscustomobject]@{ Name = 'Public'; Enabled = 'True'; DefaultInboundAction = 'Block' }))
+        $f.Count | Should -Be 2
+        @($f | Where-Object { -not $_.Pass }).Count | Should -Be 0
+    }
+    It 'fails <Name>' -ForEach @(
+        @{ Name = 'a profile that is off'; Enabled = 'False'; Action = 'Block' }
+        @{ Name = 'Allow as the default'; Enabled = 'True'; Action = 'Allow' }
+        @{ Name = 'NotConfigured as the default'; Enabled = 'True'; Action = 'NotConfigured' }
+    ) {
+        $f = @(Get-FirewallProfileFinding -FirewallProfile @([pscustomobject]@{ Name = 'Private'; Enabled = $Enabled; DefaultInboundAction = $Action }))
+        @($f | Where-Object { -not $_.Pass }).Count | Should -Be 1
+    }
+    It 'fails when no profiles were read' {
+        @(Get-FirewallProfileFinding -FirewallProfile @())[0].Pass | Should -BeFalse
     }
 }
 
@@ -261,7 +521,10 @@ Describe 'Write-Finding' {
 
 Describe 'Script files' {
     BeforeDiscovery {
-        $script:files = @(Get-ChildItem -Path (Join-Path $PSScriptRoot '../../scripts/windows') -File | ForEach-Object { $_.FullName })
+        # Every PowerShell file in the repo: Windows PowerShell 5.1 reads the scripts, the tools and these tests.
+        $root = Join-Path $PSScriptRoot '../..'
+        $script:files = @(Get-ChildItem -Path $root -Recurse -File -Include '*.ps1', '*.psm1', '*.psd1' |
+                Where-Object { $_.FullName -notmatch '[\\/]\.(git|sillplate)[\\/]' } | ForEach-Object { $_.FullName })
     }
     It 'include the module (so the ASCII test below never runs on nothing)' -ForEach @(@{ Files = $script:files }) {
         $Files.Count | Should -BeGreaterThan 0

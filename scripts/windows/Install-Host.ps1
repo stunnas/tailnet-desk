@@ -7,7 +7,8 @@ Run it on the HOST, the PC that will be controlled, in PowerShell as administrat
 step skips what is already done, and a run without -ControllerIp keeps the controllers already whitelisted.
 
   1. Installs Tailscale (pinned version, with winget) if it's missing, then stops until you've signed in.
-  2. Installs RustDesk (pinned version) from its official GitHub release after checking the file's SHA-256.
+  2. Installs RustDesk (pinned version) from its official GitHub release after checking the file's SHA-256, then
+     stops it using RustDesk's public ID and relay servers.
   3. Limits RustDesk's Windows Firewall rules to the Tailscale adapter. This comes before step 4, so direct IP access
      is never on while the firewall still lets every network in.
   4. Sets RustDesk's security settings: no public ID or relay server, permanent password only, sessions start on the
@@ -62,6 +63,12 @@ Write-Step 'Step 2 of 6: RustDesk'
 Install-RustDesk
 $exe = Get-RustDeskExe
 if (-not $exe) { throw 'RustDesk is not installed.' }
+# Stop using RustDesk's public ID and relay servers straight away, so a later step that stops the script doesn't
+# leave the PC reachable through them. The other settings wait for step 4, after the firewall.
+$servers = [ordered]@{}
+foreach ($key in @('custom-rendezvous-server', 'relay-server')) { $servers[$key] = (Get-HostOption)[$key] }
+Set-RustDeskOption -Exe $exe -Option $servers
+Write-Host "RustDesk no longer uses its public servers."
 
 Write-Step 'Step 3 of 6: Windows Firewall'
 Set-RustDeskFirewallToTailscale -AdapterName $setting.AdapterName
@@ -76,6 +83,13 @@ if ($controllers.Count -gt 0) {
     Write-Host "Direct IP access: on. Whitelist ($source): $($options['whitelist'])"
 } else {
     Write-Host 'No controller yet, so direct IP access is OFF.' -ForegroundColor Yellow
+}
+if ($given.Count -eq 0) {
+    $notKept = @(ConvertTo-AddressList -Address $current['whitelist'] | Where-Object { $controllers -notcontains $_ })
+    if ($notKept.Count -gt 0) {
+        Write-Host "Not kept: $($notKept -join ', '). Each isn't a single Tailscale address or is this PC's own." -ForegroundColor Yellow
+        Write-Host '  They stay in RustDesk until you run this again with -ControllerIp, and the check below fails them.' -ForegroundColor Yellow
+    }
 }
 Set-RustDeskOption -Exe $exe -Option $options
 

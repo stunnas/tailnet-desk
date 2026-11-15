@@ -37,8 +37,7 @@ $findings += [pscustomobject]@{
 }
 
 if ($exe) {
-    $current = Get-RustDeskOption -Exe $exe -Key @('whitelist', 'direct-server', 'custom-rendezvous-server',
-        'relay-server', 'verification-method', 'approve-mode', 'enable-lan-discovery')
+    $current = Get-RustDeskOption -Exe $exe -Key (Get-HostOptionKey)
     $findings += Get-HostSettingFinding -ControllerIp $ControllerIp -Current $current -OwnIp "$tsIp"
 
     if (Test-OptionValue -Key 'direct-server' -Want 'Y' -Have $current['direct-server']) {
@@ -48,19 +47,7 @@ if ($exe) {
 }
 
 # Firewall: what Windows actually applies (ActiveStore), so settings from Group Policy count too.
-foreach ($p in @(Get-NetFirewallProfile -PolicyStore ActiveStore)) {
-    $findings += [pscustomobject]@{
-        Check  = "Windows Firewall is on for the $($p.Name) profile"
-        Pass   = ("$($p.Enabled)" -eq 'True')
-        Detail = "Enabled: $($p.Enabled)"
-    }
-    # With Allow as the default, connections nobody ruled on get in, and the Tailscale limit means nothing.
-    $findings += [pscustomobject]@{
-        Check  = "Windows Firewall blocks unasked-for connections on the $($p.Name) profile"
-        Pass   = ("$($p.DefaultInboundAction)" -eq 'Block')
-        Detail = "DefaultInboundAction: $($p.DefaultInboundAction)"
-    }
-}
+$findings += Get-FirewallProfileFinding -FirewallProfile @(Get-NetFirewallProfile -PolicyStore ActiveStore)
 $findings += Get-FirewallFinding -Rule @(Get-FirewallRuleState -Rule (Get-RustDeskFirewallRule -PolicyStore ActiveStore)) -AdapterName $setting.AdapterName
 # Rules that open the port itself (exactly, in a range, or Any) would get around the adapter limit.
 $portRules = @(Get-FirewallRuleState -Rule (Get-PortAllowRule -PolicyStore ActiveStore))

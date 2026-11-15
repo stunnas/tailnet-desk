@@ -2,11 +2,15 @@
 # Written for Windows PowerShell 5.1 and PowerShell 7. Keep this file ASCII only: Windows PowerShell 5.1 reads
 # files without a byte order mark as the system code page, so other characters break.
 #
-# Sections: settings, checks (no system access, tested in tests/windows on Linux and Windows), system reads,
-# and system changes. Each system change says what it changes. The caller's $ErrorActionPreference doesn't reach a
-# module, so system functions pass -ErrorAction Stop to every cmdlet whose failure matters.
-# These scripts run as administrator but trust the signed-in user's account: they find system folders through the
-# registry rather than environment variables, which the user's own programs could change.
+# Sections: settings, checks (no system access; tests/windows covers them, plus the system functions with mocks),
+# system reads, and system changes. Each system change says what it changes. The caller's $ErrorActionPreference
+# doesn't reach a module, so system functions pass -ErrorAction Stop to every cmdlet whose failure matters.
+#
+# Threat model: the scripts run as administrator but trust the signed-in user's account and everything running as it.
+# They are run from the user's Downloads folder, so a program running as the user could change them anyway, and
+# winget is found through the user's PATH. The hardening below protects against mistakes and odd setups, not
+# against such a program: system folders come from the machine registry rather than environment variables, and the
+# downloaded installer sits in an admin-only folder, locked from its hash check until it exits.
 
 Set-StrictMode -Version 3.0
 
@@ -18,9 +22,12 @@ $script:Setting = [pscustomobject]@{
     AdapterName     = 'Tailscale'           # Tailscale's network adapter on Windows
     ServiceName     = 'RustDesk'
     RuleNames       = @('RustDesk Service', 'rustdesk.exe')   # names RustDesk's installer gives its firewall rules
-    RustDeskVersion = '1.5.3'                # bump together with RustDeskSha256
+    RustDeskRepo    = 'rustdesk/rustdesk'   # the official GitHub repo; downloads come only from its releases
+    # Released 2026-11-09. Bump together with RustDeskSha256, then re-test and update the README's Status.
+    RustDeskVersion = '1.5.3'
     RustDeskSha256  = '523ba0efbf62a21739961b62c7daaffb44d3da86139c546b364fd4e1333ed249'
-    TailscaleWinget = '1.104.4'             # winget package Tailscale.Tailscale; Tailscale updates itself afterwards
+    # winget package Tailscale.Tailscale, released 2026-10-28; Tailscale updates itself afterwards.
+    TailscaleWinget = '1.104.4'
 }
 $script:Setting | Add-Member -NotePropertyName RustDeskAsset -NotePropertyValue "rustdesk-$($script:Setting.RustDeskVersion)-x86_64.exe"
 
@@ -33,6 +40,18 @@ function Get-TailnetDeskSetting {
 
 # --- Checks (no system access) -------------------------------------------------------------------------------
 
+function Test-IPv4 {
+    <# .SYNOPSIS True when the text is exactly one IPv4 address, written without leading zeros. #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Address)
+
+    # \z, not $: $ would also accept a trailing newline. [0-9], not \d: \d matches non-ASCII digits in .NET.
+    if ($Address -notmatch '^(0|[1-9][0-9]{0,2})(\.(0|[1-9][0-9]{0,2})){3}\z') { return $false }
+    foreach ($part in $Address.Split('.')) { if ([int]$part -gt 255) { return $false } }
+    return $true
+}
+
 function Test-TailscaleIPv4 {
     <#
     .SYNOPSIS
@@ -43,10 +62,8 @@ function Test-TailscaleIPv4 {
     [OutputType([bool])]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Address)
 
-    # \z, not $: $ would also accept a trailing newline. [0-9], not \d: \d matches non-ASCII digits in .NET.
-    if ($Address -notmatch '^(0|[1-9][0-9]{0,2})(\.(0|[1-9][0-9]{0,2})){3}\z') { return $false }
+    if (-not (Test-IPv4 -Address $Address)) { return $false }
     $parts = $Address.Split('.') | ForEach-Object { [int]$_ }
-    foreach ($part in $parts) { if ($part -gt 255) { return $false } }
     return ($parts[0] -eq 100 -and $parts[1] -ge 64 -and $parts[1] -le 127)
 }
 
@@ -124,10 +141,12 @@ function Resolve-ControllerIp {
 function Get-HostOption {
     <#
     .SYNOPSIS
-    The RustDesk settings a locked-down host needs, as an ordered list of key and value (RustDesk 1.5.3 names).
+    The RustDesk settings a locked-down host needs, as an ordered list of key and value (names as in the RustDesk
+    version pinned in Setting).
     .DESCRIPTION
-    With controllers, direct IP access is on and only they are whitelisted. Without, it is off: an empty whitelist
-    would let every device on the Tailscale network try a password.
+    With controllers, direct IP access is on and only they are whitelisted. Without, it is off, and the whitelist is
+    left as it is: an empty whitelist would let every device on the Tailscale network try a password, and
+    Get-HostSettingFinding fails any entry that isn't a single Tailscale address, so nothing is left there unseen.
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
@@ -152,6 +171,14 @@ function Get-HostOption {
         $options['direct-server'] = 'N'
     }
     return $options
+}
+
+function Get-HostOptionKey {
+    <# .SYNOPSIS Every RustDesk setting the host checks: the ones Get-HostOption sets, plus the whitelist. #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    return @(@('whitelist') + @((Get-HostOption).Keys) | Select-Object -Unique)
 }
 
 function Test-OptionValue {
@@ -198,7 +225,9 @@ function Get-HostSettingFinding {
     <#
     .SYNOPSIS
     Checks RustDesk's current settings on the host. Given controllers must be valid and exactly whitelisted; without
-    them, the current whitelist is judged on its own. Direct IP access on with a bad or empty whitelist fails.
+    them, the current whitelist is judged on its own. Every whitelist entry must be a single Tailscale address that
+    isn't this PC, even while direct IP access is off, so turning it on later can't bring back a range. Direct IP
+    access on with an empty whitelist fails.
     #>
     [CmdletBinding()]
     param(
@@ -220,13 +249,13 @@ function Get-HostSettingFinding {
             Pass   = ($listed.Count -gt 0)
             Detail = 'an empty whitelist lets every Tailscale device try a password'
         }
-        $results += Get-AddressFinding -Address $listed -What 'Whitelist entry'
-        if ($OwnIp -and ($listed -contains $OwnIp)) {
-            $results += [pscustomobject]@{
-                Check  = "Whitelist doesn't include this PC's own address"
-                Pass   = $false
-                Detail = "remove ${OwnIp}; whitelist only the controllers"
-            }
+    }
+    $results += Get-AddressFinding -Address $listed -What 'Whitelist entry'
+    if ($OwnIp -and ($listed -contains $OwnIp)) {
+        $results += [pscustomobject]@{
+            Check  = "Whitelist doesn't include this PC's own address"
+            Pass   = $false
+            Detail = "remove ${OwnIp}; whitelist only the controllers"
         }
     }
     $validGiven = @($given | Where-Object { Test-TailscaleIPv4 -Address $_ })
@@ -252,9 +281,10 @@ function Select-ReleaseAsset {
     $asset = @($Release.assets | Where-Object { $_.name -eq $AssetName }) | Select-Object -First 1
     if (-not $asset) { throw "Release $($Release.tag_name) has no file named $AssetName." }
 
-    $prefix = 'https://github.com/rustdesk/rustdesk/releases/download/'
+    $repo = $script:Setting.RustDeskRepo
+    $prefix = "https://github.com/$repo/releases/download/"
     if (-not "$($asset.browser_download_url)".StartsWith($prefix, [StringComparison]::Ordinal)) {
-        throw "The download address for $AssetName isn't on github.com/rustdesk/rustdesk. Refusing to use it."
+        throw "The download address for $AssetName isn't on github.com/$repo. Refusing to use it."
     }
     if ($asset.PSObject.Properties.Name -contains 'digest' -and $asset.digest) {
         if ("$($asset.digest)".ToLowerInvariant() -ne "sha256:$($Sha256.ToLowerInvariant())") {
@@ -277,6 +307,57 @@ function Test-PortSpecCover {
     if ($t -eq 'Any' -or $t -eq "$Port") { return $true }
     if ($t -match '^([0-9]{1,5})-([0-9]{1,5})\z') { return ([int]$Matches[1] -le $Port -and $Port -le [int]$Matches[2]) }
     return $false
+}
+
+function Test-AllowRule {
+    <#
+    .SYNOPSIS
+    True for an enabled Allow rule, in the given direction when one is named. Reads Action, Enabled and Direction,
+    as Get-NetFirewallRule returns them.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)]$Rule, [ValidateSet('', 'Inbound', 'Outbound')][string]$Direction = '')
+    if ("$($Rule.Action)" -ne 'Allow' -or "$($Rule.Enabled)" -ne 'True') { return $false }
+    return (-not $Direction -or "$($Rule.Direction)" -eq $Direction)
+}
+
+function Test-PortFilterMatch {
+    <#
+    .SYNOPSIS
+    True when a port filter (as Get-NetFirewallPortFilter returns it) lets in TCP on the port: protocol TCP or Any,
+    and a LocalPort entry that covers it.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)]$Filter, [int]$Port = $script:Setting.DirectPort)
+    if ("$($Filter.Protocol)" -notin @('TCP', 'Any')) { return $false }
+    return (@(@($Filter.LocalPort) | Where-Object { Test-PortSpecCover -Spec "$_" -Port $Port }).Count -gt 0)
+}
+
+function Get-FirewallProfileFinding {
+    <#
+    .SYNOPSIS
+    Two results per firewall profile (as Get-NetFirewallProfile returns them): the firewall is on, and connections
+    nobody ruled on are blocked. With Allow as the default, they get in and the Tailscale limit means nothing.
+    #>
+    [CmdletBinding()]
+    param([AllowEmptyCollection()][object[]]$FirewallProfile = @())
+    if (@($FirewallProfile).Count -eq 0) {
+        [pscustomobject]@{ Check = 'Windows Firewall profiles were read'; Pass = $false; Detail = 'none found' }
+    }
+    foreach ($p in @($FirewallProfile)) {
+        [pscustomobject]@{
+            Check  = "Windows Firewall is on for the $($p.Name) profile"
+            Pass   = ("$($p.Enabled)" -eq 'True')
+            Detail = "Enabled: $($p.Enabled)"
+        }
+        [pscustomobject]@{
+            Check  = "Windows Firewall blocks unasked-for connections on the $($p.Name) profile"
+            Pass   = ("$($p.DefaultInboundAction)" -eq 'Block')
+            Detail = "DefaultInboundAction: $($p.DefaultInboundAction)"
+        }
+    }
 }
 
 function Get-FirewallFinding {
@@ -401,16 +482,32 @@ function Get-TailscaleIPv4 {
 function Get-RustDeskOption {
     <#
     .SYNOPSIS
-    Reads RustDesk settings through its command line. Needs an admin PowerShell and an installed RustDesk.
+    Reads RustDesk settings through its command line. Needs an admin PowerShell and an installed RustDesk. Throws when
+    a read fails, so a failed read is never taken for an empty setting.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Exe, [Parameter(Mandatory)][string[]]$Key)
     $values = @{}
     foreach ($k in $Key) {
         # Piping makes PowerShell wait for RustDesk, which is a windowed program, and collects its output.
-        $values[$k] = (& $Exe --option $k | Out-String).Trim()
+        $out = (& $Exe --option $k | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) { throw "RustDesk couldn't read the setting $k (exit code $LASTEXITCODE)." }
+        $values[$k] = $out
     }
     return $values
+}
+
+function Assert-OnlyNotFound {
+    <#
+    .SYNOPSIS
+    Throws the first error that isn't "not found". Looking up a firewall rule by a name that doesn't exist is normal
+    (RustDesk versions name their rules differently); access denied or a firewall service error is not.
+    #>
+    [CmdletBinding()]
+    param([AllowNull()][AllowEmptyCollection()][object[]]$ErrorRecord = @())
+    foreach ($e in @($ErrorRecord)) {
+        if ($null -ne $e -and "$($e.CategoryInfo.Category)" -ne 'ObjectNotFound') { throw $e }
+    }
 }
 
 function Get-StoreArg {
@@ -433,12 +530,15 @@ function Get-RustDeskFirewallRule {
     param([string]$PolicyStore = '')
     $store = Get-StoreArg -PolicyStore $PolicyStore
     $rules = @()
-    $rules += @(Get-NetFirewallRule -DisplayName $script:Setting.RuleNames @store -ErrorAction SilentlyContinue)
-    $rules += @(Get-NetFirewallApplicationFilter @store -ErrorAction SilentlyContinue |
+    foreach ($name in $script:Setting.RuleNames) {
+        $lookupError = $null
+        $rules += @(Get-NetFirewallRule -DisplayName $name @store -ErrorAction SilentlyContinue -ErrorVariable lookupError)
+        Assert-OnlyNotFound -ErrorRecord $lookupError
+    }
+    $rules += @(Get-NetFirewallApplicationFilter @store -ErrorAction Stop |
         Where-Object { $_.Program -like '*\rustdesk.exe' } |
-        Get-NetFirewallRule -ErrorAction SilentlyContinue)
-    return @($rules | Where-Object { $_ -and "$($_.Action)" -eq 'Allow' -and "$($_.Enabled)" -eq 'True' } |
-        Sort-Object -Property Name -Unique)
+        Get-NetFirewallRule -ErrorAction Stop)
+    return @($rules | Where-Object { $_ -and (Test-AllowRule -Rule $_) } | Sort-Object -Property Name -Unique)
 }
 
 function Get-PortAllowRule {
@@ -452,11 +552,11 @@ function Get-PortAllowRule {
     [CmdletBinding()]
     param([string]$PolicyStore = '')
     $store = Get-StoreArg -PolicyStore $PolicyStore
-    return @(Get-NetFirewallPortFilter @store -ErrorAction SilentlyContinue |
-        Where-Object { "$($_.Protocol)" -in @('TCP', 'Any') -and (@($_.LocalPort) | Where-Object { Test-PortSpecCover -Spec "$_" }) } |
-        Get-NetFirewallRule -ErrorAction SilentlyContinue |
-        Where-Object { "$($_.Direction)" -eq 'Inbound' -and "$($_.Action)" -eq 'Allow' -and "$($_.Enabled)" -eq 'True' } |
-        Where-Object { "$(($_ | Get-NetFirewallApplicationFilter).Program)" -eq 'Any' } |
+    return @(Get-NetFirewallPortFilter @store -ErrorAction Stop |
+        Where-Object { Test-PortFilterMatch -Filter $_ } |
+        Get-NetFirewallRule -ErrorAction Stop |
+        Where-Object { Test-AllowRule -Rule $_ -Direction Inbound } |
+        Where-Object { "$(($_ | Get-NetFirewallApplicationFilter -ErrorAction Stop).Program)" -eq 'Any' } |
         Sort-Object -Property Name -Unique)
 }
 
@@ -468,7 +568,7 @@ function Get-FirewallRuleState {
         [pscustomobject]@{
             DisplayName    = $r.DisplayName
             Direction      = "$($r.Direction)"
-            InterfaceAlias = @(($r | Get-NetFirewallInterfaceFilter).InterfaceAlias)
+            InterfaceAlias = @(($r | Get-NetFirewallInterfaceFilter -ErrorAction Stop).InterfaceAlias)
         }
     }
 }
@@ -496,8 +596,8 @@ function Install-Tailscale {
 function New-PrivateFolder {
     <#
     .SYNOPSIS
-    A new, randomly named folder only Administrators and SYSTEM can write to, so nothing else running as you can
-    swap a downloaded installer between its check and its launch. Changes: creates a folder.
+    A new, randomly named folder only Administrators and SYSTEM can write to, so a program that isn't running as an
+    administrator can't swap the downloaded installer between its check and its launch. Changes: creates a folder.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
@@ -508,6 +608,11 @@ function New-PrivateFolder {
     $trusted = @('S-1-5-32-544', 'S-1-5-18')   # Administrators, SYSTEM
     foreach ($dir in @($root, $path)) {
         if (Test-Path -LiteralPath $dir) {
+            # A junction or link here would send the permission change below to another folder: refuse it.
+            $item = Get-Item -LiteralPath $dir -Force -ErrorAction Stop
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "$dir is a link to another folder, not a folder. Delete it and run again."
+            }
             # Someone else could have made it first to keep control of it. Only accept one owned by an administrator.
             $owner = (Get-Acl -LiteralPath $dir -ErrorAction Stop).GetOwner([Security.Principal.SecurityIdentifier]).Value
             if ($trusted -notcontains $owner) { throw "$dir already exists and isn't owned by Administrators. Delete it and run again." }
@@ -557,12 +662,12 @@ function Install-RustDesk {
     $stream = $null
     try {
         $release = Invoke-RestMethod -UseBasicParsing -ErrorAction Stop -Headers @{ 'User-Agent' = 'tailnet-desk' } `
-            -Uri "https://api.github.com/repos/rustdesk/rustdesk/releases/tags/$($s.RustDeskVersion)"
+            -Uri "https://api.github.com/repos/$($s.RustDeskRepo)/releases/tags/$($s.RustDeskVersion)"
         $asset = Select-ReleaseAsset -Release $release -AssetName $s.RustDeskAsset -Sha256 $s.RustDeskSha256
         $folder = New-PrivateFolder
         if (-not $folder) { return }
         $file = Join-Path $folder $asset.Name
-        Write-Host "Downloading RustDesk $($s.RustDeskVersion) from github.com/rustdesk/rustdesk ..."
+        Write-Host "Downloading RustDesk $($s.RustDeskVersion) from github.com/$($s.RustDeskRepo) ..."
         Invoke-WebRequest -UseBasicParsing -ErrorAction Stop -Uri $asset.Url -OutFile $file
 
         # Hold the file open, refusing writes, deletes and renames, from the hash check until the installer exits.
@@ -591,7 +696,10 @@ function Install-RustDesk {
     } finally {
         if ($stream) { $stream.Dispose() }
         $ProgressPreference = $oldProgress
-        if ($folder) { Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue }
+        if ($folder) {
+            try { Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction Stop }
+            catch { Write-Warning "Couldn't delete the download folder $folder ($($_.Exception.Message)). Delete it by hand." }
+        }
     }
 }
 
@@ -644,7 +752,9 @@ function Set-RustDeskFirewallToAny {
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
-    foreach ($r in Get-RustDeskFirewallRule) {
+    $rules = Get-RustDeskFirewallRule
+    if (@($rules).Count -eq 0) { throw 'No RustDesk firewall rules found, so there was nothing to undo.' }
+    foreach ($r in $rules) {
         if ($PSCmdlet.ShouldProcess("Firewall rule '$($r.DisplayName)' ($($r.Direction))", 'Apply on every adapter')) {
             $r | Set-NetFirewallRule -InterfaceAlias Any -ErrorAction Stop
         }

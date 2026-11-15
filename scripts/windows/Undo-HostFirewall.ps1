@@ -13,4 +13,4 @@ param()
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'TailnetDesk.psm1') -Force
 Set-RustDeskFirewallToAny
-Write-Host "RustDesk's firewall rules apply on every network adapter again."
+Write-Host "RustDesk's Allow rules apply on every network adapter again."
