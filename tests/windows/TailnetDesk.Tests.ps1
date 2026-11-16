@@ -519,6 +519,24 @@ Describe 'Get-FirewallFinding' {
     It 'fails when there are no rules' {
         (Get-FirewallFinding -Rule @())[0].Pass | Should -BeFalse
     }
+    It 'names the protocol, so a TCP and a UDP rule with one name get different lines' {
+        $rules = @(
+            [pscustomobject]@{ DisplayName = 'rustdesk.exe'; Direction = 'Inbound'; Protocol = 'TCP'; InterfaceAlias = 'Tailscale' }
+            [pscustomobject]@{ DisplayName = 'rustdesk.exe'; Direction = 'Inbound'; Protocol = 'UDP'; InterfaceAlias = 'Tailscale' }
+        )
+        $checks = @(Get-FirewallFinding -Rule $rules -SkipCountCheck).Check
+        $checks[0] | Should -Be "Rule 'rustdesk.exe' (Inbound, TCP) only on Tailscale"
+        $checks[1] | Should -Be "Rule 'rustdesk.exe' (Inbound, UDP) only on Tailscale"
+    }
+    It 'leaves out a protocol of Any or none' {
+        $rules = @(
+            [pscustomobject]@{ DisplayName = 'RustDesk Service'; Direction = 'Inbound'; Protocol = 'Any'; InterfaceAlias = 'Tailscale' }
+            [pscustomobject]@{ DisplayName = 'RustDesk Service'; Direction = 'Outbound'; InterfaceAlias = 'Tailscale' }
+        )
+        $checks = @(Get-FirewallFinding -Rule $rules -SkipCountCheck).Check
+        $checks[0] | Should -Be "Rule 'RustDesk Service' (Inbound) only on Tailscale"
+        $checks[1] | Should -Be "Rule 'RustDesk Service' (Outbound) only on Tailscale"
+    }
 }
 
 Describe 'Test-PortSpecCover' {
@@ -827,12 +845,14 @@ Describe 'Test-OpenToAnyProgram' {
 }
 
 Describe 'Get-FirewallRuleState' {
-    It 'reads each rule''s name, direction and adapters' {
+    It 'reads each rule''s name, direction, adapters and protocol' {
         Mock -ModuleName TailnetDesk Get-InterfaceAliasOfRule { @('Tailscale') }
+        Mock -ModuleName TailnetDesk Get-ProtocolOfRule { 'UDP' }
         $s = @(Get-FirewallRuleState -Rule @([pscustomobject]@{ DisplayName = 'RustDesk Service'; Direction = 'Inbound' }))
         $s[0].DisplayName | Should -Be 'RustDesk Service'
         $s[0].Direction | Should -Be 'Inbound'
         ($s[0].InterfaceAlias -join ',') | Should -Be 'Tailscale'
+        $s[0].Protocol | Should -Be 'UDP'
     }
 }
 

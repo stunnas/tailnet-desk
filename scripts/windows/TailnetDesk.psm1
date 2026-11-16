@@ -466,7 +466,9 @@ function Get-FirewallFinding {
     <#
     .SYNOPSIS
     Checks firewall rules that let RustDesk in. Each rule needs DisplayName, Direction and InterfaceAlias (a string or
-    a list). Returns a "rules found" result (unless -SkipCountCheck) plus one per rule.
+    a list), and may have Protocol. Returns a "rules found" result (unless -SkipCountCheck) plus one per rule. A
+    protocol other than Any is named in the check, so rules that share a name (Windows makes a TCP and a UDP rule
+    when you allow a program) get different lines.
     #>
     [CmdletBinding()]
     param(
@@ -482,8 +484,11 @@ function Get-FirewallFinding {
     }
     foreach ($r in @($Rule)) {
         $aliases = @($r.InterfaceAlias)
+        $kind = "$($r.Direction)"
+        $protocol = if ($r.PSObject.Properties['Protocol']) { "$($r.Protocol)" } else { '' }
+        if ($protocol -and $protocol -ne 'Any') { $kind += ", $protocol" }
         $results += [pscustomobject]@{
-            Check  = "$($Prefix)Rule '$($r.DisplayName)' ($($r.Direction)) only on $AdapterName"
+            Check  = "$($Prefix)Rule '$($r.DisplayName)' ($kind) only on $AdapterName"
             Pass   = ($aliases.Count -eq 1 -and "$($aliases[0])" -eq $AdapterName)
             Detail = "InterfaceAlias: $($aliases -join ', ')"
         }
@@ -744,6 +749,14 @@ function Get-InterfaceAliasOfRule {
     return @(($Rule | Get-NetFirewallInterfaceFilter -ErrorAction Stop).InterfaceAlias)
 }
 
+function Get-ProtocolOfRule {
+    <# .SYNOPSIS A firewall rule's protocol, such as TCP, UDP or Any. #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)]$Rule)
+    return "$(($Rule | Get-NetFirewallPortFilter -ErrorAction Stop).Protocol)"
+}
+
 function Get-FirewallRuleState {
     <# .SYNOPSIS The fields Get-FirewallFinding checks, read from live rules. #>
     [CmdletBinding()]
@@ -753,6 +766,7 @@ function Get-FirewallRuleState {
             DisplayName    = $r.DisplayName
             Direction      = "$($r.Direction)"
             InterfaceAlias = @(Get-InterfaceAliasOfRule -Rule $r)
+            Protocol       = Get-ProtocolOfRule -Rule $r
         }
     }
 }
