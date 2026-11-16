@@ -70,7 +70,7 @@ if ! td_pf_installed; then
 fi
 echo
 if [ "$ok" -eq 0 ]; then
-  echo 'All host checks passed. Now run test-from-controller.sh on the controller.'
+  echo 'All host checks passed. Now test from the controller: test-from-controller.sh on a Mac, Test-FromController.ps1 on a Windows PC.'
   exit 0
 fi
 echo 'Some checks failed. See docs/host-mac.md, "When something goes wrong".'
