@@ -222,6 +222,39 @@ address. Then, in the same admin PowerShell window, run the script with it in pl
 This turns on direct IP access with only that address on RustDesk's whitelist. For more than one controller,
 separate the addresses with commas: `-ControllerIp 100.64.0.11,100.64.0.12`.
 
+On a PC that already has Tailscale and RustDesk, the output looks like this (with your addresses):
+
+```text
+== Step 1 of 6: Tailscale
+Tailscale is already installed.
+Tailscale is signed in. This PC's (the host's) Tailscale address: 100.64.0.10
+
+== Step 2 of 6: RustDesk
+RustDesk is already installed.
+RustDesk no longer uses its public servers.
+
+== Step 3 of 6: Windows Firewall
+RustDesk's firewall rules now apply to the Tailscale adapter only.
+
+== Step 4 of 6: RustDesk security settings
+Direct IP access: on. Whitelist (from -ControllerIp): 100.64.0.11
+
+== Step 5 of 6: Sleep
+This PC no longer sleeps while plugged in. (The screen can still turn off.)
+
+== Step 6 of 6: Check
+
+Host checks
+  PASS  Tailscale is signed in
+  PASS  Given controller address '100.64.0.11' is one Tailscale address
+  ...   (the rest are the same lines as in "Check the host" below)
+
+All host checks passed. Now run Test-FromController.ps1 on the controller.
+```
+
+After that it lists the password and two-factor steps for you to do in RustDesk, and this PC's Tailscale address
+again. Every line should say PASS. If one says FAIL, see [FAIL lines from Test-Host.ps1](#fail-lines-from-test-hostps1).
+
 Later runs without `-ControllerIp` keep the controller addresses already on the whitelist. They don't keep anything
 that isn't a single Tailscale address, such as a range or this PC's own address: the script names those entries.
 If valid addresses are left, the whitelist is set to just those. If none are left, direct IP access is turned off
@@ -240,6 +273,42 @@ It still can't prove the firewall works from outside, so also run the controller
 ```powershell
 .\Test-Host.ps1
 ```
+
+On a working host, every line says PASS (your controller's address in place of the example):
+
+```text
+Host checks
+  PASS  Tailscale is signed in
+  PASS  Network adapter 'Tailscale' exists
+  PASS  RustDesk is installed
+  PASS  RustDesk service is running
+  PASS  Whitelist is not empty while direct IP access is on
+  PASS  Whitelist entry '100.64.0.11' is one Tailscale address
+  PASS  RustDesk setting custom-rendezvous-server
+  PASS  RustDesk setting relay-server
+  PASS  RustDesk setting verification-method
+  PASS  RustDesk setting approve-mode
+  PASS  RustDesk setting enable-lan-discovery
+  PASS  RustDesk setting whitelist
+  PASS  RustDesk setting direct-server
+  PASS  RustDesk listens on TCP 21118
+  PASS  Windows Firewall is on for the Domain profile
+  PASS  Windows Firewall blocks unasked-for connections on the Domain profile
+  PASS  Windows Firewall is on for the Private profile
+  PASS  Windows Firewall blocks unasked-for connections on the Private profile
+  PASS  Windows Firewall is on for the Public profile
+  PASS  Windows Firewall blocks unasked-for connections on the Public profile
+  PASS  RustDesk firewall rules exist
+  PASS  Rule 'RustDesk Service' (Inbound) only on Tailscale
+  PASS  Rule 'RustDesk Service' (Outbound) only on Tailscale
+  PASS  Rule 'rustdesk.exe' (Inbound, TCP) only on Tailscale
+  PASS  Rule 'rustdesk.exe' (Inbound, UDP) only on Tailscale
+
+All host checks passed. Now run Test-FromController.ps1 on the controller.
+```
+
+The rule lines depend on your PC: the `rustdesk.exe` pair only appears if Windows asked whether to allow RustDesk
+and you said yes. A line starting `Port rule:` appears for each other rule that opens RustDesk's port.
 
 **Run it again after every RustDesk update**: an update may reinstall the firewall rules without the Tailscale limit.
 
