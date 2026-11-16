@@ -17,29 +17,24 @@ is about, and save as PNG.
 
 ## Shot list: Windows
 
-None are taken yet. The three shots of script output (`install-host-output.png`, `test-host-output.png` and
-`test-from-controller-output.png`) wait until the scripts have run on a real PC.
+None are taken yet. Script output isn't a screenshot: the guides show it as text, with the example addresses, so
+readers can search it and the private data check can scan it.
 
 | File | Shows | Guide and step |
 |---|---|---|
 | `tailscale-tray-login.png` | The Tailscale tray icon menu with **Log in** | Host manual 1, controller 1 |
 | `tailscale-admin-key-expiry.png` | Admin console `...` menu with **Disable key expiry** (machine names covered) | Host manual 1 |
 | `powershell-run-as-admin.png` | Start menu, right-click Windows PowerShell, **Run as administrator** | Host manual 3 |
-| `install-host-output.png` | The end of `Install-Host.ps1` with PASS lines (addresses covered) | Host script path 3 |
 | `rustdesk-settings-open.png` | RustDesk main window with the Settings menu (ID and password covered) | Host manual 4 |
-| `rustdesk-security-unlock.png` | Security page with **Unlock security settings** | Host manual 4 |
-| `rustdesk-permanent-password.png` | Password section with **Use permanent password** | Host manual 4 |
-| `rustdesk-2fa-toggle.png` | Two-factor switch, QR code cropped out | Host manual 4 |
-| `rustdesk-direct-ip-whitelist.png` | Direct IP access and the whitelist (addresses covered) | Host manual 4 |
+| `rustdesk-security-top.png` | Security page, unlocked: the password section with **Use permanent password** and the two-factor switch, QR code cropped out | Host manual 4 |
+| `rustdesk-direct-ip-whitelist.png` | Security page: direct IP access and the whitelist (addresses covered) | Host manual 4 |
 | `rustdesk-network-servers.png` | Network page with `127.0.0.1` in ID and Relay server | Host manual 4, controller 2 |
-| `test-host-output.png` | `Test-Host.ps1` all PASS | Check the host |
 | `rustdesk-connect-box.png` | Controller's **Control Remote Desktop** box | Controller 3 |
 | `rustdesk-2fa-prompt.png` | The 6-digit code prompt when connecting | Controller 3 |
-| `test-from-controller-output.png` | `Test-FromController.ps1` all PASS (addresses covered) | Controller tests |
 
 ## Shot list: Mac
 
-None are taken yet. The script-output shots wait until the Mac scripts have run end to end.
+None are taken yet. As for Windows, script output is shown as text in the guide, not as a screenshot.
 
 | File | Shows | Guide and step |
 |---|---|---|
@@ -50,8 +45,6 @@ None are taken yet. The script-output shots wait until the Mac scripts have run 
 | `rustdesk-mac-security.png` | RustDesk's Security settings (ID and password covered) | Host manual 3 |
 | `battery-prevent-sleep.png` | Battery → Options with "Prevent automatic sleeping on the power adapter" on | Host manual 4 |
 | `macos-firewall-options.png` | Network → Firewall → Options with stealth mode on | Optional macOS firewall |
-| `install-host-mac-output.png` | The end of `install-host.sh` with PASS lines (addresses covered) | Host script path 2 |
-| `test-host-mac-output.png` | `test-host.sh` all PASS (addresses covered: it prints the whitelist) | Check the host |
 
 Save these in `docs/images/mac/`.
 

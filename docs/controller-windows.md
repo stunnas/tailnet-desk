@@ -97,7 +97,8 @@ as well until it has.
 1. Get the scripts as on the host ([host guide, script path, step 1](host-windows.md#1-get-the-scripts)).
 2. Open a **normal** PowerShell (not as administrator): press the Windows key, type `powershell`, press Enter.
 3. Type `cd ` (with a space), drag the `windows` folder from File Explorer into the window, and press **Enter**.
-4. Allow scripts for this window, then run the test with your two host addresses in place of the examples:
+4. Allow scripts for this window (type `Y` and press **Enter** when it asks "Do you want to change the execution
+   policy?"), then run the test with your two host addresses in place of the examples:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
@@ -106,6 +107,20 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```powershell
 .\Test-FromController.ps1 -HostTailscaleIp 100.64.0.10 -HostHomeIp 192.168.0.10
 ```
+
+When everything works, it prints:
+
+```text
+Controller checks
+  PASS  This PC is signed in to Tailscale
+  PASS  Host's Tailscale address answers on 21118
+  PASS  Host's home address does NOT answer on 21118
+
+Still test by hand: connecting from a device NOT on the whitelist must show "Your ip is blocked by the peer".
+```
+
+For the home address test, this PC must be on the same home network as the host. Away from home, leave out
+`-HostHomeIp`: the script skips that test and says so.
 
 ### The tests no script can do
 
