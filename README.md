@@ -82,7 +82,7 @@ Phase 1 (Windows) is being tested.
 | Manual steps in the Windows guides | Followed on two PCs with RustDesk 1.5.3. Not confirmed on a real PC yet: host manual step 3, command 3 (edge traversal) and command 6 as now written (firewall profiles as Windows applies them). |
 | The shared module (`TailnetDesk.psm1`) | Its checks are tested automatically, and so are most of its steps, with the Windows commands they call replaced by stand-ins (mocks). The firewall reads that pass rules from one Windows command to the next aren't. |
 | The four scripts themselves | Not tested automatically: their step order and how they combine the module's results are checked only by running them. |
-| The scripts on a real PC | `Test-Host.ps1` and the module's read-only commands ran on a set-up Windows 11 PC: RustDesk's settings, the firewall profiles and rules, the registry paths and the locked-installer launch all worked. **`Install-Host.ps1` hasn't been run on a real PC yet.** Until it has, follow the guides' manual path. |
+| The scripts on a real PC | On a Windows 11 PC that already had Tailscale and RustDesk 1.5.3, `Install-Host.ps1 -ControllerIp` ran every step and its check passed, and `Test-Host.ps1` passed after it. From the controller, RustDesk's port answered over Tailscale and not on the home network, and a device not on the whitelist was refused. An earlier run also tried the locked-installer launch, which worked. Not yet run on a real PC: installing Tailscale and RustDesk with the script, and `Test-FromController.ps1`. |
 
 ## License
 

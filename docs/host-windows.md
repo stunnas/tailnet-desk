@@ -16,7 +16,7 @@ is `100.64.0.11`. Yours will be different: always use the real ones from your Ta
 1. [Before you start](#before-you-start)
 2. [The order across both devices](#the-order-across-both-devices)
 3. [Manual path](#manual-path)
-4. [Script path (not yet tested on a real PC)](#script-path-not-yet-tested-on-a-real-pc)
+4. [Script path](#script-path)
 5. [Check the host](#check-the-host)
 6. [When something goes wrong](#when-something-goes-wrong)
 
@@ -140,11 +140,12 @@ in. A sleeping PC can't be reached. The screen turning off is fine.
 
 Then [check the host](#check-the-host) and go to the controller to [connect](controller-windows.md#3-connect).
 
-## Script path (not yet tested on a real PC)
+## Script path
 
-> **Not yet run on a real Windows PC.** Most of the functions the script uses are tested automatically, with the
-> Windows commands they call replaced by stand-ins, but the script itself isn't. Until it has been run on a real
-> host, use the manual path above. See the [README's Status](../README.md#status).
+> **Tested on one real PC that already had Tailscale and RustDesk.** On it, the script and the check passed, and
+> the tests from the controller worked. Installing Tailscale and RustDesk with the script hasn't been run on a real
+> PC yet: on a new PC, you can install them by hand ([steps 1](#1-tailscale) and [2](#2-rustdesk)) and then run the
+> script. See the [README's Status](../README.md#status).
 
 The script does the manual path's steps except the ones that need you: signing in to Tailscale, turning off key
 expiry, choosing the password and scanning the two-factor QR code. It's safe to run more than once: each run skips
@@ -167,7 +168,9 @@ from a ZIP you just downloaded from this repo.
 1. Open PowerShell as administrator ([how](#3-firewall-let-rustdesk-answer-only-through-tailscale)).
 2. Type `cd ` (with a space), drag the `windows` folder from File Explorer into the PowerShell window, and press
    **Enter**. The prompt now ends in `\scripts\windows>`.
-3. Windows blocks scripts downloaded from the internet by default. Allow these ones for this window only:
+3. Windows blocks scripts downloaded from the internet by default. Allow these ones for this window only. Run
+   the two commands one at a time. The first asks "Do you want to change the execution policy?": type `Y` and
+   press **Enter**.
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
@@ -231,9 +234,8 @@ Then go to the controller to [connect](controller-windows.md#3-connect).
 
 Run the check script on the host, in admin PowerShell in the `scripts\windows` folder (get it as in
 [the script path, steps 1 and 2](#1-get-the-scripts)). It changes nothing and prints PASS or FAIL for each item.
-Like the setup script, it hasn't been run on a real PC yet, so until it has, also confirm by hand: manual firewall
-commands 5 and 6 above, the settings in [step 4's table](#4-rustdesk-security-settings), and the controller's
-[tests by hand](controller-windows.md#by-hand).
+It still can't prove the firewall works from outside, so also run the controller's
+[tests by hand](controller-windows.md#by-hand) once.
 
 ```powershell
 .\Test-Host.ps1
