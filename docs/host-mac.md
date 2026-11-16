@@ -181,6 +181,40 @@ Once the controller has joined Tailscale, find the **controller's** `100.x` addr
 This turns on direct IP access with only that address on RustDesk's whitelist. For more than one controller,
 separate the addresses with commas: `--controller-ip 100.64.0.11,100.64.0.12`.
 
+On a Mac that already has RustDesk, the output looks like this (with your addresses). It asks for your Mac password
+once:
+
+```text
+== Step 1 of 6: Tailscale
+Tailscale is signed in. This Mac's (the host's) Tailscale address: 100.64.0.10
+
+== Step 2 of 6: RustDesk
+RustDesk is already installed.
+
+== Step 3 of 6: RustDesk's background service and permissions
+RustDesk is running. Your Mac password may be asked: RustDesk only shows its settings to an administrator.
+Password:
+RustDesk no longer uses its public servers.
+Check by hand that Screen & System Audio Recording and Accessibility both list RustDesk as allowed.
+
+== Step 4 of 6: RustDesk security settings
+Direct IP access: on. Whitelist (from --controller-ip): 100.64.0.11
+
+== Step 5 of 6: Sleep
+...
+
+== Step 6 of 6: Check
+
+Host checks
+  PASS  Tailscale is signed in
+  ...   (the same lines as in "Check the host" below)
+
+All host checks passed. Now test from the controller: test-from-controller.sh on a Mac, Test-FromController.ps1 on a Windows PC.
+```
+
+After that it lists the password and two-factor steps for you to do in RustDesk, and this Mac's Tailscale address
+again.
+
 Later runs without `--controller-ip` keep the controller addresses already on the whitelist. They don't keep anything
 that isn't a single Tailscale address, such as a range or this Mac's own address: the script names those entries.
 If valid addresses are left, the whitelist is set to just those. If none are left, direct IP access is turned off
@@ -261,6 +295,33 @@ your Mac password, because RustDesk only shows its settings to an administrator.
 ```bash
 ./test-host.sh
 ```
+
+On a working host, every line says PASS (your controller's address in place of the example):
+
+```text
+Host checks
+  PASS  Tailscale is signed in
+  PASS  RustDesk is installed
+  PASS  RustDesk is signed by its Apple team (HZF9JMC8YN)
+  PASS  RustDesk starts at boot (its system service is installed)
+  PASS  RustDesk's background service is running
+  PASS  Whitelist is not empty while direct IP access is on
+  PASS  Whitelist entry '100.64.0.11' is one Tailscale address
+  PASS  RustDesk setting custom-rendezvous-server
+  PASS  RustDesk setting relay-server
+  PASS  RustDesk setting verification-method
+  PASS  RustDesk setting approve-mode
+  PASS  RustDesk setting enable-lan-discovery
+  PASS  RustDesk setting whitelist
+  PASS  RustDesk setting direct-server
+  PASS  RustDesk listens on TCP 21118
+  NOTE  The optional firewall step (enable-pf.sh) isn't in use; the whitelist alone limits who can connect.
+
+All host checks passed. Now test from the controller: test-from-controller.sh on a Mac, Test-FromController.ps1 on a Windows PC.
+```
+
+With the [firewall step](#optional-limit-rustdesk-to-tailscale-in-the-firewall) on, the NOTE line is a PASS line for
+the firewall instead.
 
 **Run it again after every RustDesk update**, and check that RustDesk is still allowed in both privacy settings.
 

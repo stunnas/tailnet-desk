@@ -107,16 +107,27 @@ nc -z -G 3 100.64.0.10 21118
 nc -z -G 3 192.168.0.10 21118
 ```
 
-### With the script (not yet tested on a real Mac)
+### With the script
 
-The same two tests in one go. It hasn't been run end to end on a real Mac yet, so do the tests by hand as well until
-it has.
+The same two tests in one go. It has run on a real Mac against a Windows host; against a Mac host, do the tests by
+hand as well until it has run there too.
 
 1. Get the scripts as on a Mac host ([host guide, script path, step 1](host-mac.md#1-get-the-scripts)).
 2. In Terminal, in the `scripts/mac` folder, run it with your two host addresses in place of the examples:
 
 ```bash
 ./test-from-controller.sh --host-tailscale-ip 100.64.0.10 --host-home-ip 192.168.0.10
+```
+
+When everything works, it prints:
+
+```text
+Controller checks
+  PASS  This Mac is signed in to Tailscale
+  PASS  Host's Tailscale address answers on 21118
+  PASS  Host's home address does NOT answer on 21118
+
+Still test by hand: connecting from a device NOT on the whitelist must show "Your ip is blocked by the peer".
 ```
 
 ### The tests no script can do
