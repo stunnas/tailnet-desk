@@ -1,4 +1,4 @@
-# TailnetDesk: shared functions for the Windows host and controller scripts.
+# tailnet-desk: shared functions for the Windows host and controller scripts.
 # Written for Windows PowerShell 5.1 and PowerShell 7. Keep this file ASCII only: Windows PowerShell 5.1 reads
 # files without a byte order mark as the system code page, so other characters break.
 #

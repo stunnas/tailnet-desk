@@ -13,7 +13,7 @@
 # image is checked by SHA-256 and by its Apple-issued signing certificate before anything in it runs.
 
 # --- Settings ------------------------------------------------------------------------------------------------
-# Versions are pinned and bumped by hand after testing. The RustDesk version must match scripts/windows/TailnetDesk.psm1
+# Versions are pinned and bumped by hand after testing. The RustDesk version must match scripts/windows/tailnet-desk.psm1
 # (tests/mac checks it).
 
 TD_DIRECT_PORT=21118                        # RustDesk direct IP access (TCP)
@@ -114,7 +114,7 @@ td_resolve_controllers() {
 # The RustDesk settings a locked-down host needs, one "key=value" per line, for the controllers given as arguments.
 # With controllers, direct IP access is on and only they are whitelisted. Without, it is off and the whitelist is left
 # as it is: an empty whitelist would let every device on the Tailscale network try a password, and td_host_findings
-# fails any entry that isn't a single Tailscale address. The same settings as scripts/windows/TailnetDesk.psm1.
+# fails any entry that isn't a single Tailscale address. The same settings as scripts/windows/tailnet-desk.psm1.
 td_host_options() {
   # Never register with RustDesk's public ID and relay servers: connect by Tailscale address only.
   echo 'custom-rendezvous-server=127.0.0.1'

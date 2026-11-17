@@ -34,7 +34,7 @@ Now go back to the host and add this PC's address to its whitelist
 ## 2. Install RustDesk
 
 1. Download it **only** from [github.com/rustdesk/rustdesk/releases](https://github.com/rustdesk/rustdesk/releases):
-   pick the release with the pinned version: open [`TailnetDesk.psm1`](../scripts/windows/TailnetDesk.psm1) and read the line
+   pick the release with the pinned version: open [`tailnet-desk.psm1`](../scripts/windows/tailnet-desk.psm1) and read the line
    `RustDeskVersion = '...'` near the top. Then open that
    release's **Assets** and pick the file ending in `x86_64.exe`.
 2. Run it and choose **Install**.
@@ -105,7 +105,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
 ```powershell
-.\Test-FromController.ps1 -HostTailscaleIp 100.64.0.10 -HostHomeIp 192.168.0.10
+.\test-from-controller.ps1 -HostTailscaleIp 100.64.0.10 -HostHomeIp 192.168.0.10
 ```
 
 When everything works, it prints:
@@ -140,7 +140,7 @@ For the home address test, this PC must be on the same home network as the host.
 | `TcpTestSucceeded : True` on the home address | A Windows host's firewall step isn't working, or a Mac host doesn't use its optional firewall step. | On a Mac host without the [firewall step](host-mac.md#optional-limit-rustdesk-to-tailscale-in-the-firewall), this is expected. Otherwise check the host ([Windows](host-windows.md#check-the-host), [Mac](host-mac.md#check-the-host)) and fix what it marks FAIL. |
 | Lag or a choppy picture | The frame rate is too high. | Set it to 30 in the session's display menu. |
 
-### Messages and FAIL lines from Test-FromController.ps1
+### Messages and FAIL lines from test-from-controller.ps1
 
 | What you see | What it means | Fix |
 |---|---|---|

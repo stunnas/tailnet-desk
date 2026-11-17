@@ -209,7 +209,7 @@ Host checks
   PASS  Tailscale is signed in
   ...   (the same lines as in "Check the host" below)
 
-All host checks passed. Now test from the controller: test-from-controller.sh on a Mac, Test-FromController.ps1 on a Windows PC.
+All host checks passed. Now test from the controller: test-from-controller.sh on a Mac, test-from-controller.ps1 on a Windows PC.
 ```
 
 After that it lists the password and two-factor steps for you to do in RustDesk, and this Mac's Tailscale address
@@ -317,7 +317,7 @@ Host checks
   PASS  RustDesk listens on TCP 21118
   NOTE  The optional firewall step (enable-pf.sh) isn't in use; the whitelist alone limits who can connect.
 
-All host checks passed. Now test from the controller: test-from-controller.sh on a Mac, Test-FromController.ps1 on a Windows PC.
+All host checks passed. Now test from the controller: test-from-controller.sh on a Mac, test-from-controller.ps1 on a Windows PC.
 ```
 
 With the [firewall step](#optional-limit-rustdesk-to-tailscale-in-the-firewall) on, the NOTE line is a PASS line for

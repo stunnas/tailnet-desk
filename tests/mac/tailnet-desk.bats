@@ -148,7 +148,7 @@ enable-lan-discovery=N'
 }
 
 @test "the Mac and Windows scripts set the same fixed RustDesk settings (all but the whitelist and direct IP access)" {
-  win=$(sed -n "s/^ *'\([a-z-]*\)' *= *'\([^']*\)'.*/\1=\2/p" "$ROOT/scripts/windows/TailnetDesk.psm1" | sort)
+  win=$(sed -n "s/^ *'\([a-z-]*\)' *= *'\([^']*\)'.*/\1=\2/p" "$ROOT/scripts/windows/tailnet-desk.psm1" | sort)
   td td_host_options
   mac=$(printf '%s\n' "$output" | grep -v '^direct-server=' | sort)
   [ -n "$win" ]
@@ -397,7 +397,7 @@ STUB
 
 @test "the Mac and Windows scripts pin the same RustDesk version" {
   mac=$(sed -n "s/^TD_RUSTDESK_VERSION='\(.*\)'.*/\1/p" "$LIB")
-  win=$(sed -n "s/^ *RustDeskVersion *= *'\([^']*\)'.*/\1/p" "$ROOT/scripts/windows/TailnetDesk.psm1")
+  win=$(sed -n "s/^ *RustDeskVersion *= *'\([^']*\)'.*/\1/p" "$ROOT/scripts/windows/tailnet-desk.psm1")
   [ -n "$mac" ]
   [ "$mac" = "$win" ]
 }

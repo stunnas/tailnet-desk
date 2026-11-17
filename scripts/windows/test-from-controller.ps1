@@ -9,14 +9,14 @@ Firewall doesn't filter a PC's connections to its own addresses, so the tests wo
 For the home network test, the controller must be on the same home network as the host.
 
 .PARAMETER HostTailscaleIp
-The HOST's Tailscale address (100.x.y.z), from the Tailscale admin console or the end of Install-Host.ps1.
+The HOST's Tailscale address (100.x.y.z), from the Tailscale admin console or the end of install-host.ps1.
 
 .PARAMETER HostHomeIp
 The HOST's home network address, from running ipconfig on the host ("IPv4 Address", often 192.168.x.x).
 Leave it out to skip the home network test, for example when you're away from home.
 
 .EXAMPLE
-.\Test-FromController.ps1 -HostTailscaleIp 100.64.0.10 -HostHomeIp 192.168.0.10
+.\test-from-controller.ps1 -HostTailscaleIp 100.64.0.10 -HostHomeIp 192.168.0.10
 #>
 [CmdletBinding()]
 param(
@@ -25,7 +25,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-Import-Module (Join-Path $PSScriptRoot 'TailnetDesk.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'tailnet-desk.psm1') -Force
 $port = (Get-TailnetDeskSetting).DirectPort
 
 if (-not (Test-TailscaleIPv4 -Address $HostTailscaleIp)) {

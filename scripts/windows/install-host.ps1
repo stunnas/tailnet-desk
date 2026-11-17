@@ -15,7 +15,7 @@ step skips what is already done, and a run without -ControllerIp keeps the contr
      password without anyone clicking Accept, no LAN discovery, and direct IP access with only your controllers
      whitelisted (off until there is a controller).
   5. Sets the PC to never sleep while plugged in (skip with -KeepSleep).
-  6. Runs Test-Host.ps1 and lists what you still do by hand: the password and two-factor.
+  6. Runs test-host.ps1 and lists what you still do by hand: the password and two-factor.
 
 It never sets or shows a password.
 
@@ -27,7 +27,7 @@ Never this PC's own address. Leave it out on the first run if no controller is o
 Don't change the sleep setting.
 
 .EXAMPLE
-.\Install-Host.ps1 -ControllerIp 100.64.0.11
+.\install-host.ps1 -ControllerIp 100.64.0.11
 #>
 #Requires -RunAsAdministrator
 [CmdletBinding()]
@@ -37,7 +37,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-Import-Module (Join-Path $PSScriptRoot 'TailnetDesk.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'tailnet-desk.psm1') -Force
 $setting = Get-TailnetDeskSetting
 
 function Write-Step([string]$Text) { Write-Host ''; Write-Host "== $Text" -ForegroundColor Cyan }
@@ -108,7 +108,7 @@ if ($KeepSleep) {
 
 Write-Step 'Step 6 of 6: Check'
 # Only addresses given on this run are passed on; otherwise the check judges the whitelist on its own.
-& (Join-Path $PSScriptRoot 'Test-Host.ps1') -ControllerIp $given
+& (Join-Path $PSScriptRoot 'test-host.ps1') -ControllerIp $given
 $checksPassed = ($LASTEXITCODE -eq 0)
 
 Write-Host ''
@@ -122,7 +122,7 @@ Write-Host 'On each controller, leave "Remember password" off and don''t trust t
 Write-Host 'who unlocks that controller can connect to this PC without either.'
 if ($controllers.Count -eq 0) {
     Write-Host '  3. When the controller is on Tailscale, run this again with its address, for example:'
-    Write-Host '     .\Install-Host.ps1 -ControllerIp 100.64.0.11   (use the controller''s real 100.x address)'
+    Write-Host '     .\install-host.ps1 -ControllerIp 100.64.0.11   (use the controller''s real 100.x address)'
 }
 Write-Host ''
 Write-Host "The controller connects to this PC's Tailscale address: $myIp"
