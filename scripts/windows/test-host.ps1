@@ -17,7 +17,7 @@ The Tailscale addresses that should be whitelisted. Leave it out to judge whatev
 param([string[]]$ControllerIp = @())
 
 $ErrorActionPreference = 'Stop'
-Import-Module (Join-Path $PSScriptRoot 'TailnetDesk.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'tailnet-desk.psm1') -Force
 $setting = Get-TailnetDeskSetting
 
 $findings = @()
@@ -58,7 +58,7 @@ Write-Host 'Host checks' -ForegroundColor Cyan
 $ok = Write-Finding -Finding $findings
 Write-Host ''
 if ($ok) {
-    Write-Host 'All host checks passed. Now run Test-FromController.ps1 on the controller.' -ForegroundColor Green
+    Write-Host 'All host checks passed. Now run test-from-controller.ps1 on the controller.' -ForegroundColor Green
     exit 0
 }
 Write-Host 'Some checks failed. See docs/host-windows.md, "When something goes wrong".' -ForegroundColor Red

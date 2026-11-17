@@ -1,7 +1,7 @@
 # Keeps the pinned GitHub Actions current. Version updates wait 14 days after a release; security updates don't.
 # Dependabot can't see the other pins, which are bumped by hand: ShellCheck, bats, actionlint, zizmor and gitleaks in
 # ci.yml, Pester and PSScriptAnalyzer in tools/install-ps-modules.ps1, and RustDesk and Tailscale in
-# scripts/windows/TailnetDesk.psm1.
+# scripts/windows/tailnet-desk.psm1.
 version: 2
 updates:
   - package-ecosystem: github-actions

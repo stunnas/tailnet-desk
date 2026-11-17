@@ -1,9 +1,9 @@
-# Pester 5 tests for scripts/windows/TailnetDesk.psm1. They change nothing on the system: the checks are pure, and the
+# Pester 5 tests for scripts/windows/tailnet-desk.psm1. They change nothing on the system: the checks are pure, and the
 # tests of system functions mock every system call. CI runs them in PowerShell 7 on Linux and Windows PowerShell 5.1
 # on Windows. Run locally: Invoke-Pester -Path tests/windows
 
 BeforeAll {
-    Import-Module (Join-Path $PSScriptRoot '../../scripts/windows/TailnetDesk.psm1') -Force
+    Import-Module (Join-Path $PSScriptRoot '../../scripts/windows/tailnet-desk.psm1') -Force
 
     # Off Windows these commands don't exist, and Pester can only mock a command that does. The stubs are never run:
     # every test that reaches one mocks it. On Windows the real commands are mocked instead.
@@ -260,83 +260,83 @@ Describe 'Install-RustDesk' {
     BeforeEach {
         # Not installed at the first look; installed once the (mocked) installer has run.
         $script:installed = $false
-        Mock -ModuleName TailnetDesk Get-RustDeskExe { if ($script:installed) { 'rustdesk.exe' } else { $null } }
-        Mock -ModuleName TailnetDesk Invoke-RestMethod {
+        Mock -ModuleName tailnet-desk Get-RustDeskExe { if ($script:installed) { 'rustdesk.exe' } else { $null } }
+        Mock -ModuleName tailnet-desk Invoke-RestMethod {
             $s = Get-TailnetDeskSetting
             [pscustomobject]@{ tag_name = $s.RustDeskVersion; assets = @([pscustomobject]@{
                         name = $s.RustDeskAsset; browser_download_url = "https://github.com/$($s.RustDeskRepo)/releases/download/$($s.RustDeskVersion)/$($s.RustDeskAsset)" }) }
         }
-        Mock -ModuleName TailnetDesk New-PrivateFolder { 'private-folder' }
-        Mock -ModuleName TailnetDesk Invoke-WebRequest { }
-        Mock -ModuleName TailnetDesk Open-LockedFile { New-Object IO.MemoryStream }
-        Mock -ModuleName TailnetDesk Get-FileHash { [pscustomobject]@{ Hash = (Get-TailnetDeskSetting).RustDeskSha256.ToUpperInvariant() } }
+        Mock -ModuleName tailnet-desk New-PrivateFolder { 'private-folder' }
+        Mock -ModuleName tailnet-desk Invoke-WebRequest { }
+        Mock -ModuleName tailnet-desk Open-LockedFile { New-Object IO.MemoryStream }
+        Mock -ModuleName tailnet-desk Get-FileHash { [pscustomobject]@{ Hash = (Get-TailnetDeskSetting).RustDeskSha256.ToUpperInvariant() } }
         $script:exitCode = 0
-        Mock -ModuleName TailnetDesk Start-Process {
+        Mock -ModuleName tailnet-desk Start-Process {
             $script:installed = ($script:exitCode -eq 0)
             [pscustomobject]@{ ExitCode = $script:exitCode } | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { } -PassThru
         }
-        Mock -ModuleName TailnetDesk Get-Service { [pscustomobject]@{ Status = 'Running' } }
-        Mock -ModuleName TailnetDesk Start-Sleep { }
-        Mock -ModuleName TailnetDesk Remove-Item { }
-        Mock -ModuleName TailnetDesk Write-Host { }
+        Mock -ModuleName tailnet-desk Get-Service { [pscustomobject]@{ Status = 'Running' } }
+        Mock -ModuleName tailnet-desk Start-Sleep { }
+        Mock -ModuleName tailnet-desk Remove-Item { }
+        Mock -ModuleName tailnet-desk Write-Host { }
     }
     It 'installs nothing and cleans up when the download does not match the pinned SHA-256' {
-        Mock -ModuleName TailnetDesk Get-FileHash { [pscustomobject]@{ Hash = 'C' * 64 } }
+        Mock -ModuleName tailnet-desk Get-FileHash { [pscustomobject]@{ Hash = 'C' * 64 } }
         { Install-RustDesk } | Should -Throw "*doesn't match the pinned one*"
-        Should -Invoke -ModuleName TailnetDesk Start-Process -Times 0 -Exactly
-        Should -Invoke -ModuleName TailnetDesk Open-LockedFile -Times 1 -Exactly
-        Should -Invoke -ModuleName TailnetDesk Get-FileHash -Times 1 -Exactly -ParameterFilter { $null -ne $InputStream }
-        Should -Invoke -ModuleName TailnetDesk Remove-Item -Times 1 -Exactly -ParameterFilter { $LiteralPath -eq 'private-folder' }
+        Should -Invoke -ModuleName tailnet-desk Start-Process -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Open-LockedFile -Times 1 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Get-FileHash -Times 1 -Exactly -ParameterFilter { $null -ne $InputStream }
+        Should -Invoke -ModuleName tailnet-desk Remove-Item -Times 1 -Exactly -ParameterFilter { $LiteralPath -eq 'private-folder' }
     }
     It 'runs the silent install when the hash matches, then deletes the download folder' {
         Install-RustDesk
-        Should -Invoke -ModuleName TailnetDesk Start-Process -Times 1 -Exactly -ParameterFilter { "$ArgumentList" -eq '--silent-install' }
-        Should -Invoke -ModuleName TailnetDesk Remove-Item -Times 1 -Exactly -ParameterFilter { $LiteralPath -eq 'private-folder' }
+        Should -Invoke -ModuleName tailnet-desk Start-Process -Times 1 -Exactly -ParameterFilter { "$ArgumentList" -eq '--silent-install' }
+        Should -Invoke -ModuleName tailnet-desk Remove-Item -Times 1 -Exactly -ParameterFilter { $LiteralPath -eq 'private-folder' }
     }
     It "throws when the installer fails, and still deletes the download folder" {
         $script:exitCode = 5
         { Install-RustDesk } | Should -Throw '*installer failed (exit code 5)*'
-        Should -Invoke -ModuleName TailnetDesk Remove-Item -Times 1 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Remove-Item -Times 1 -Exactly
     }
     It "throws when the service doesn't start within a minute" {
-        Mock -ModuleName TailnetDesk Get-Service { [pscustomobject]@{ Status = 'Stopped' } }
+        Mock -ModuleName tailnet-desk Get-Service { [pscustomobject]@{ Status = 'Stopped' } }
         # Each look at the clock is 10 seconds later, so the minute runs out without waiting.
         $script:clock = [datetime]'2026-01-01'
-        Mock -ModuleName TailnetDesk Get-Date { $script:clock = $script:clock.AddSeconds(10); $script:clock }
+        Mock -ModuleName tailnet-desk Get-Date { $script:clock = $script:clock.AddSeconds(10); $script:clock }
         { Install-RustDesk } | Should -Throw "*service didn't start within a minute*"
     }
     It 'creates no folder and downloads nothing when the release is refused' {
-        Mock -ModuleName TailnetDesk Invoke-RestMethod { [pscustomobject]@{ tag_name = 'x'; assets = @() } }
+        Mock -ModuleName tailnet-desk Invoke-RestMethod { [pscustomobject]@{ tag_name = 'x'; assets = @() } }
         { Install-RustDesk } | Should -Throw '*no file named*'
-        Should -Invoke -ModuleName TailnetDesk New-PrivateFolder -Times 0 -Exactly
-        Should -Invoke -ModuleName TailnetDesk Invoke-WebRequest -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk New-PrivateFolder -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Invoke-WebRequest -Times 0 -Exactly
     }
     It 'downloads and installs nothing when no folder was made (-WhatIf)' {
-        Mock -ModuleName TailnetDesk New-PrivateFolder { $null }
+        Mock -ModuleName tailnet-desk New-PrivateFolder { $null }
         Install-RustDesk
-        Should -Invoke -ModuleName TailnetDesk Invoke-WebRequest -Times 0 -Exactly
-        Should -Invoke -ModuleName TailnetDesk Start-Process -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Invoke-WebRequest -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Start-Process -Times 0 -Exactly
     }
     It 'does nothing when RustDesk is already installed' {
         $script:installed = $true
         Install-RustDesk
-        Should -Invoke -ModuleName TailnetDesk Invoke-RestMethod -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Invoke-RestMethod -Times 0 -Exactly
     }
     It 'warns instead of failing when the download folder cannot be deleted' {
-        Mock -ModuleName TailnetDesk Remove-Item { throw 'in use' }
-        Mock -ModuleName TailnetDesk Write-Warning { }
+        Mock -ModuleName tailnet-desk Remove-Item { throw 'in use' }
+        Mock -ModuleName tailnet-desk Write-Warning { }
         Install-RustDesk
-        Should -Invoke -ModuleName TailnetDesk Write-Warning -Times 1 -Exactly -ParameterFilter { $Message -like '*private-folder*' }
+        Should -Invoke -ModuleName tailnet-desk Write-Warning -Times 1 -Exactly -ParameterFilter { $Message -like '*private-folder*' }
     }
 }
 
 Describe 'New-PrivateFolder' {
     It 'refuses a folder that is a junction or link, before reading its owner or changing permissions' {
-        Mock -ModuleName TailnetDesk Get-ProgramDataPath { $TestDrive }
-        Mock -ModuleName TailnetDesk Test-Path { $true }
-        Mock -ModuleName TailnetDesk Get-Item { [pscustomobject]@{ Attributes = [IO.FileAttributes]'Directory, ReparsePoint' } }
+        Mock -ModuleName tailnet-desk Get-ProgramDataPath { $TestDrive }
+        Mock -ModuleName tailnet-desk Test-Path { $true }
+        Mock -ModuleName tailnet-desk Get-Item { [pscustomobject]@{ Attributes = [IO.FileAttributes]'Directory, ReparsePoint' } }
         { New-PrivateFolder } | Should -Throw '*is a link to another folder*'
-        Should -Invoke -ModuleName TailnetDesk Get-Item -Times 1 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Get-Item -Times 1 -Exactly
     }
 }
 
@@ -348,17 +348,17 @@ Describe 'Get-TailscaleIPv4' {
     }
     AfterEach { Remove-Item Env:\FAKE_TAILSCALE_OUT -ErrorAction SilentlyContinue }
     It 'returns the address Tailscale prints' {
-        Mock -ModuleName TailnetDesk Get-TailscaleExe { $script:fakeTailscale }
+        Mock -ModuleName tailnet-desk Get-TailscaleExe { $script:fakeTailscale }
         $env:FAKE_TAILSCALE_OUT = "100.64.0.10`r`n"
         Get-TailscaleIPv4 | Should -Be '100.64.0.10'
     }
     It 'returns nothing for no output, extra lines, or Tailscale not installed' {
-        Mock -ModuleName TailnetDesk Get-TailscaleExe { $script:fakeTailscale }
+        Mock -ModuleName tailnet-desk Get-TailscaleExe { $script:fakeTailscale }
         $env:FAKE_TAILSCALE_OUT = ''
         Get-TailscaleIPv4 | Should -BeNullOrEmpty
         $env:FAKE_TAILSCALE_OUT = "100.64.0.10`nLogged out."
         Get-TailscaleIPv4 | Should -BeNullOrEmpty
-        Mock -ModuleName TailnetDesk Get-TailscaleExe { $null }
+        Mock -ModuleName tailnet-desk Get-TailscaleExe { $null }
         Get-TailscaleIPv4 | Should -BeNullOrEmpty
     }
 }
@@ -376,18 +376,18 @@ Describe 'Get-RustDeskOption' {
 
 Describe 'Set-RustDeskOption' {
     It "throws when RustDesk doesn't take a setting" {
-        Mock -ModuleName TailnetDesk Get-RustDeskOption { @{ 'relay-server' = 'rs-ny.rustdesk.com' } }
+        Mock -ModuleName tailnet-desk Get-RustDeskOption { @{ 'relay-server' = 'rs-ny.rustdesk.com' } }
         { Set-RustDeskOption -Exe $script:fakeExe -Option ([ordered]@{ 'relay-server' = '127.0.0.1' }) } |
             Should -Throw "*didn't take the setting relay-server*"
     }
     It 'passes when every setting reads back as written' {
-        Mock -ModuleName TailnetDesk Get-RustDeskOption { @{ 'relay-server' = '127.0.0.1' } }
+        Mock -ModuleName tailnet-desk Get-RustDeskOption { @{ 'relay-server' = '127.0.0.1' } }
         { Set-RustDeskOption -Exe $script:fakeExe -Option ([ordered]@{ 'relay-server' = '127.0.0.1' }) } | Should -Not -Throw
     }
     It 'changes and reads nothing with -WhatIf' {
-        Mock -ModuleName TailnetDesk Get-RustDeskOption { throw 'must not run' }
+        Mock -ModuleName tailnet-desk Get-RustDeskOption { throw 'must not run' }
         Set-RustDeskOption -Exe $script:fakeExe -Option ([ordered]@{ 'relay-server' = '127.0.0.1' }) -WhatIf
-        Should -Invoke -ModuleName TailnetDesk Get-RustDeskOption -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Get-RustDeskOption -Times 0 -Exactly
     }
 }
 
@@ -435,48 +435,48 @@ Describe 'Assert-OnlyNotFound' {
 
 Describe 'Set-RustDeskFirewallToTailscale' {
     BeforeEach {
-        Mock -ModuleName TailnetDesk Get-NetAdapter { [pscustomobject]@{ Name = 'Tailscale' } }
-        Mock -ModuleName TailnetDesk Set-NetFirewallRule { } -RemoveParameterType InputObject, InterfaceAlias
+        Mock -ModuleName tailnet-desk Get-NetAdapter { [pscustomobject]@{ Name = 'Tailscale' } }
+        Mock -ModuleName tailnet-desk Set-NetFirewallRule { } -RemoveParameterType InputObject, InterfaceAlias
     }
     It 'throws when there is no Tailscale adapter, and changes nothing' {
-        Mock -ModuleName TailnetDesk Get-NetAdapter { }
+        Mock -ModuleName tailnet-desk Get-NetAdapter { }
         { Set-RustDeskFirewallToTailscale } | Should -Throw "*No network adapter named 'Tailscale'*"
-        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Set-NetFirewallRule -Times 0 -Exactly
     }
     It 'throws when RustDesk has no firewall rules' {
-        Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @() }
+        Mock -ModuleName tailnet-desk Get-RustDeskFirewallRule { @() }
         { Set-RustDeskFirewallToTailscale } | Should -Throw '*No RustDesk firewall rules found*'
     }
     It 'changes nothing with -WhatIf' {
-        Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @([pscustomobject]@{ DisplayName = 'RustDesk Service'; Direction = 'Inbound'; EdgeTraversalPolicy = 'DeferToUser' }) }
+        Mock -ModuleName tailnet-desk Get-RustDeskFirewallRule { @([pscustomobject]@{ DisplayName = 'RustDesk Service'; Direction = 'Inbound'; EdgeTraversalPolicy = 'DeferToUser' }) }
         Set-RustDeskFirewallToTailscale -WhatIf
-        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Set-NetFirewallRule -Times 0 -Exactly
     }
     It 'switches a DeferToUser rule to Block and limits every rule to Tailscale' {
-        Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @(
+        Mock -ModuleName tailnet-desk Get-RustDeskFirewallRule { @(
                 [pscustomobject]@{ DisplayName = 'RustDesk Service'; Direction = 'Inbound'; EdgeTraversalPolicy = 'DeferToUser' }
                 [pscustomobject]@{ DisplayName = 'RustDesk Service'; Direction = 'Outbound'; EdgeTraversalPolicy = 'Block' }) }
         Set-RustDeskFirewallToTailscale
-        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 1 -Exactly -ParameterFilter { "$EdgeTraversalPolicy" -eq 'Block' }
-        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 2 -Exactly -ParameterFilter { @($InterfaceAlias) -contains 'Tailscale' }
+        Should -Invoke -ModuleName tailnet-desk Set-NetFirewallRule -Times 1 -Exactly -ParameterFilter { "$EdgeTraversalPolicy" -eq 'Block' }
+        Should -Invoke -ModuleName tailnet-desk Set-NetFirewallRule -Times 2 -Exactly -ParameterFilter { @($InterfaceAlias) -contains 'Tailscale' }
     }
 }
 
 Describe 'Set-RustDeskFirewallToAny' {
-    BeforeEach { Mock -ModuleName TailnetDesk Set-NetFirewallRule { } -RemoveParameterType InputObject, InterfaceAlias }
+    BeforeEach { Mock -ModuleName tailnet-desk Set-NetFirewallRule { } -RemoveParameterType InputObject, InterfaceAlias }
     It 'throws when there are no rules, so the undo never reports a change it did not make' {
-        Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @() }
+        Mock -ModuleName tailnet-desk Get-RustDeskFirewallRule { @() }
         { Set-RustDeskFirewallToAny } | Should -Throw '*nothing to undo*'
     }
     It 'changes nothing with -WhatIf' {
-        Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @([pscustomobject]@{ DisplayName = 'rustdesk.exe'; Direction = 'Inbound' }) }
+        Mock -ModuleName tailnet-desk Get-RustDeskFirewallRule { @([pscustomobject]@{ DisplayName = 'rustdesk.exe'; Direction = 'Inbound' }) }
         Set-RustDeskFirewallToAny -WhatIf
-        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Set-NetFirewallRule -Times 0 -Exactly
     }
     It 'puts every rule back on every adapter' {
-        Mock -ModuleName TailnetDesk Get-RustDeskFirewallRule { @([pscustomobject]@{ DisplayName = 'rustdesk.exe'; Direction = 'Inbound' }) }
+        Mock -ModuleName tailnet-desk Get-RustDeskFirewallRule { @([pscustomobject]@{ DisplayName = 'rustdesk.exe'; Direction = 'Inbound' }) }
         Set-RustDeskFirewallToAny
-        Should -Invoke -ModuleName TailnetDesk Set-NetFirewallRule -Times 1 -Exactly -ParameterFilter { @($InterfaceAlias) -contains 'Any' }
+        Should -Invoke -ModuleName tailnet-desk Set-NetFirewallRule -Times 1 -Exactly -ParameterFilter { @($InterfaceAlias) -contains 'Any' }
     }
 }
 
@@ -589,7 +589,7 @@ Describe 'Expand-SystemDrivePath' {
 }
 
 Describe 'Write-Finding' {
-    BeforeAll { Mock -ModuleName TailnetDesk Write-Host { } }
+    BeforeAll { Mock -ModuleName tailnet-desk Write-Host { } }
     It 'returns true when all passed' {
         Write-Finding -Finding @([pscustomobject]@{ Check = 'a'; Pass = $true; Detail = '' }) | Should -BeTrue
     }
@@ -630,40 +630,40 @@ Describe 'Get-RustDeskFirewallRule' {
     # The mocks write their errors with -ErrorAction Continue, so they stay non-terminating as a real cmdlet's do under
     # -ErrorAction SilentlyContinue, even when the caller's preference is Stop (as in GitHub Actions' pwsh steps).
     BeforeEach {
-        Mock -ModuleName TailnetDesk Get-NetFirewallApplicationFilter { }
+        Mock -ModuleName tailnet-desk Get-NetFirewallApplicationFilter { }
     }
     It 'treats a rule name that does not exist as no rule' {
-        Mock -ModuleName TailnetDesk Get-NetFirewallRule { Write-Error -Message 'No rule' -Category ObjectNotFound -ErrorAction Continue }
+        Mock -ModuleName tailnet-desk Get-NetFirewallRule { Write-Error -Message 'No rule' -Category ObjectNotFound -ErrorAction Continue }
         @(Get-RustDeskFirewallRule).Count | Should -Be 0
     }
     It 'stops on any other lookup error, such as access denied' {
-        Mock -ModuleName TailnetDesk Get-NetFirewallRule { Write-Error -Message 'Access denied' -Category PermissionDenied -ErrorAction Continue }
+        Mock -ModuleName tailnet-desk Get-NetFirewallRule { Write-Error -Message 'Access denied' -Category PermissionDenied -ErrorAction Continue }
         { Get-RustDeskFirewallRule } | Should -Throw '*Access denied*'
     }
     It "finds RustDesk's rules under another name through their program, and only RustDesk's" {
-        Mock -ModuleName TailnetDesk Get-NetFirewallRule { Write-Error -Message 'No rule' -Category ObjectNotFound -ErrorAction Continue }
-        Mock -ModuleName TailnetDesk Get-NetFirewallApplicationFilter { @(
+        Mock -ModuleName tailnet-desk Get-NetFirewallRule { Write-Error -Message 'No rule' -Category ObjectNotFound -ErrorAction Continue }
+        Mock -ModuleName tailnet-desk Get-NetFirewallApplicationFilter { @(
                 [pscustomobject]@{ Program = 'C:\Program Files\RustDesk\rustdesk.exe'; Rule = 'renamed' }
                 [pscustomobject]@{ Program = 'C:\Tools\browser.exe'; Rule = 'browser' }) }
-        Mock -ModuleName TailnetDesk Get-RuleOfFilter { [pscustomobject]@{ Name = $Filter.Rule; Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound' } }
+        Mock -ModuleName tailnet-desk Get-RuleOfFilter { [pscustomobject]@{ Name = $Filter.Rule; Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound' } }
         (@(Get-RustDeskFirewallRule).Name -join ',') | Should -Be 'renamed'
-        Should -Invoke -ModuleName TailnetDesk Get-RuleOfFilter -Times 1 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Get-RuleOfFilter -Times 1 -Exactly
     }
     It 'reads the given policy store, such as ActiveStore, for both the name and the program lookups' {
-        Mock -ModuleName TailnetDesk Get-NetFirewallRule { }
+        Mock -ModuleName tailnet-desk Get-NetFirewallRule { }
         $null = Get-RustDeskFirewallRule -PolicyStore ActiveStore
         $n = @((Get-TailnetDeskSetting).RuleNames).Count
-        Should -Invoke -ModuleName TailnetDesk Get-NetFirewallRule -Times $n -Exactly -ParameterFilter { $PolicyStore -eq 'ActiveStore' }
-        Should -Invoke -ModuleName TailnetDesk Get-NetFirewallApplicationFilter -Times 1 -Exactly -ParameterFilter { $PolicyStore -eq 'ActiveStore' }
+        Should -Invoke -ModuleName tailnet-desk Get-NetFirewallRule -Times $n -Exactly -ParameterFilter { $PolicyStore -eq 'ActiveStore' }
+        Should -Invoke -ModuleName tailnet-desk Get-NetFirewallApplicationFilter -Times 1 -Exactly -ParameterFilter { $PolicyStore -eq 'ActiveStore' }
     }
     It 'reads the local store when no policy store is given' {
-        Mock -ModuleName TailnetDesk Get-NetFirewallRule { }
+        Mock -ModuleName tailnet-desk Get-NetFirewallRule { }
         $null = Get-RustDeskFirewallRule
-        Should -Invoke -ModuleName TailnetDesk Get-NetFirewallRule -Times 0 -ParameterFilter { $PolicyStore }
-        Should -Invoke -ModuleName TailnetDesk Get-NetFirewallApplicationFilter -Times 0 -ParameterFilter { $PolicyStore }
+        Should -Invoke -ModuleName tailnet-desk Get-NetFirewallRule -Times 0 -ParameterFilter { $PolicyStore }
+        Should -Invoke -ModuleName tailnet-desk Get-NetFirewallApplicationFilter -Times 0 -ParameterFilter { $PolicyStore }
     }
     It 'keeps enabled Allow rules once each, and drops Block rules' {
-        Mock -ModuleName TailnetDesk Get-NetFirewallRule { @(
+        Mock -ModuleName tailnet-desk Get-NetFirewallRule { @(
                 [pscustomobject]@{ Name = 'a'; Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound' }
                 [pscustomobject]@{ Name = 'b'; Action = 'Block'; Enabled = 'True'; Direction = 'Inbound' }) }
         $r = @(Get-RustDeskFirewallRule)
@@ -673,72 +673,72 @@ Describe 'Get-RustDeskFirewallRule' {
 
 Describe 'Get-ProgramFilesPath and Get-ProgramDataPath' {
     It 'prefers the 64-bit Program Files folder, so 32-bit PowerShell finds the right one' {
-        Mock -ModuleName TailnetDesk Get-ItemProperty { [pscustomobject]@{ ProgramFilesDir = 'C:\Program Files (x86)'; ProgramW6432Dir = 'C:\Program Files' } }
+        Mock -ModuleName tailnet-desk Get-ItemProperty { [pscustomobject]@{ ProgramFilesDir = 'C:\Program Files (x86)'; ProgramW6432Dir = 'C:\Program Files' } }
         Get-ProgramFilesPath | Should -Be 'C:\Program Files'
     }
     It 'falls back to ProgramFilesDir when there is no 64-bit value' {
-        Mock -ModuleName TailnetDesk Get-ItemProperty { [pscustomobject]@{ ProgramFilesDir = 'C:\Program Files' } }
+        Mock -ModuleName tailnet-desk Get-ItemProperty { [pscustomobject]@{ ProgramFilesDir = 'C:\Program Files' } }
         Get-ProgramFilesPath | Should -Be 'C:\Program Files'
     }
     It 'reads ProgramData unexpanded and fills in the drive from SystemRoot' {
         # Answers like the registry: unexpanded only when asked for it, otherwise already filled in from the environment.
-        Mock -ModuleName TailnetDesk Get-Item {
+        Mock -ModuleName tailnet-desk Get-Item {
             [pscustomobject]@{} | Add-Member -MemberType ScriptMethod -Name GetValue -Value {
                 param($n, $d, $o)
                 if ($n -eq 'ProgramData' -and $o -eq [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) { '%SystemDrive%\ProgramData' }
                 else { 'E:\FromEnvironment\ProgramData' }
             } -PassThru
         }
-        Mock -ModuleName TailnetDesk Get-ItemProperty { [pscustomobject]@{ SystemRoot = 'D:\WINDOWS' } }
+        Mock -ModuleName tailnet-desk Get-ItemProperty { [pscustomobject]@{ SystemRoot = 'D:\WINDOWS' } }
         Get-ProgramDataPath | Should -Be 'D:\ProgramData'
     }
     It 'refuses a SystemRoot without a drive, so no path is looked up from the current folder: "<_>"' -ForEach @('', 'WINDOWS', '%SystemDrive%\WINDOWS') {
         $script:root = $_
-        Mock -ModuleName TailnetDesk Get-ItemProperty { [pscustomobject]@{ SystemRoot = $script:root } }
+        Mock -ModuleName tailnet-desk Get-ItemProperty { [pscustomobject]@{ SystemRoot = $script:root } }
         { Get-System32Exe -Name 'icacls.exe' } | Should -Throw '*system drive*'
     }
     It 'finds Windows'' own programs in System32 under SystemRoot, never through PATH' {
-        Mock -ModuleName TailnetDesk Get-ItemProperty { [pscustomobject]@{ SystemRoot = 'D:\WINDOWS' } }
+        Mock -ModuleName tailnet-desk Get-ItemProperty { [pscustomobject]@{ SystemRoot = 'D:\WINDOWS' } }
         ((Get-System32Exe -Name 'icacls.exe') -replace '/', '\') | Should -Be 'D:\WINDOWS\System32\icacls.exe'
     }
 }
 
 Describe 'New-PrivateFolder failure paths' {
     BeforeEach {
-        Mock -ModuleName TailnetDesk Get-ProgramDataPath { $TestDrive }
-        Mock -ModuleName TailnetDesk New-Item { }
-        Mock -ModuleName TailnetDesk Invoke-IcaclsTool { [pscustomobject]@{ ExitCode = 0; Output = '' } }
-        Mock -ModuleName TailnetDesk Get-ChildItem { }
+        Mock -ModuleName tailnet-desk Get-ProgramDataPath { $TestDrive }
+        Mock -ModuleName tailnet-desk New-Item { }
+        Mock -ModuleName tailnet-desk Invoke-IcaclsTool { [pscustomobject]@{ ExitCode = 0; Output = '' } }
+        Mock -ModuleName tailnet-desk Get-ChildItem { }
     }
     It 'refuses an existing folder that is not owned by Administrators or SYSTEM' {
-        Mock -ModuleName TailnetDesk Test-Path { $true }
-        Mock -ModuleName TailnetDesk Get-Item { [pscustomobject]@{ Attributes = [IO.FileAttributes]::Directory } }
-        Mock -ModuleName TailnetDesk Get-Acl {
+        Mock -ModuleName tailnet-desk Test-Path { $true }
+        Mock -ModuleName tailnet-desk Get-Item { [pscustomobject]@{ Attributes = [IO.FileAttributes]::Directory } }
+        Mock -ModuleName tailnet-desk Get-Acl {
             [pscustomobject]@{} | Add-Member -MemberType ScriptMethod -Name GetOwner -Value { param($t) [pscustomobject]@{ Value = 'S-1-5-21-1-2-3-1001' } } -PassThru
         }
         { New-PrivateFolder } | Should -Throw "*isn't owned by Administrators*"
-        Should -Invoke -ModuleName TailnetDesk Invoke-IcaclsTool -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Invoke-IcaclsTool -Times 0 -Exactly
     }
     It 'stops when icacls fails to restrict the permissions' {
-        Mock -ModuleName TailnetDesk Test-Path { $false }
-        Mock -ModuleName TailnetDesk Invoke-IcaclsTool { [pscustomobject]@{ ExitCode = 5; Output = 'Access is denied.' } }
+        Mock -ModuleName tailnet-desk Test-Path { $false }
+        Mock -ModuleName tailnet-desk Invoke-IcaclsTool { [pscustomobject]@{ ExitCode = 5; Output = 'Access is denied.' } }
         { New-PrivateFolder } | Should -Throw "*Couldn't restrict the permissions*exit code 5*Access is denied.*"
     }
     It 'stops when the new folder already holds something' {
-        Mock -ModuleName TailnetDesk Test-Path { $false }
-        Mock -ModuleName TailnetDesk Get-ChildItem { [pscustomobject]@{ Name = 'planted.exe' } }
+        Mock -ModuleName tailnet-desk Test-Path { $false }
+        Mock -ModuleName tailnet-desk Get-ChildItem { [pscustomobject]@{ Name = 'planted.exe' } }
         { New-PrivateFolder } | Should -Throw "*wasn't empty*"
     }
     It 'returns a new admin-only folder under ProgramData\tailnet-desk' {
-        Mock -ModuleName TailnetDesk Test-Path { $false }
+        Mock -ModuleName tailnet-desk Test-Path { $false }
         $path = New-PrivateFolder
         $path | Should -BeLike (Join-Path (Join-Path $TestDrive 'tailnet-desk') '*')
         $want = '/inheritance:r|/grant:r|*S-1-5-32-544:(OI)(CI)F|*S-1-5-18:(OI)(CI)F'
-        Should -Invoke -ModuleName TailnetDesk Invoke-IcaclsTool -Times 2 -Exactly -ParameterFilter { $a = @($Argument); ($a[1..($a.Count - 1)] -join '|') -eq $want }
+        Should -Invoke -ModuleName tailnet-desk Invoke-IcaclsTool -Times 2 -Exactly -ParameterFilter { $a = @($Argument); ($a[1..($a.Count - 1)] -join '|') -eq $want }
         # Once on the shared folder and once on the new one.
         $root = Join-Path $TestDrive 'tailnet-desk'
-        Should -Invoke -ModuleName TailnetDesk Invoke-IcaclsTool -Times 1 -Exactly -ParameterFilter { @($Argument)[0] -eq $root }
-        Should -Invoke -ModuleName TailnetDesk Invoke-IcaclsTool -Times 1 -Exactly -ParameterFilter { @($Argument)[0] -eq $path }
+        Should -Invoke -ModuleName tailnet-desk Invoke-IcaclsTool -Times 1 -Exactly -ParameterFilter { @($Argument)[0] -eq $root }
+        Should -Invoke -ModuleName tailnet-desk Invoke-IcaclsTool -Times 1 -Exactly -ParameterFilter { @($Argument)[0] -eq $path }
     }
     It 'accepts an existing folder owned by <Name>, as on a second run' -ForEach @(
         @{ Name = 'Administrators'; Sid = 'S-1-5-32-544' }
@@ -746,24 +746,24 @@ Describe 'New-PrivateFolder failure paths' {
     ) {
         $script:ownerSid = $Sid
         # Only the shared tailnet-desk folder exists; the new random folder inside it doesn't yet.
-        Mock -ModuleName TailnetDesk Test-Path { $LiteralPath -notmatch '[0-9a-f]{32}$' }
-        Mock -ModuleName TailnetDesk Get-Item { [pscustomobject]@{ Attributes = [IO.FileAttributes]::Directory } }
-        Mock -ModuleName TailnetDesk Get-Acl {
+        Mock -ModuleName tailnet-desk Test-Path { $LiteralPath -notmatch '[0-9a-f]{32}$' }
+        Mock -ModuleName tailnet-desk Get-Item { [pscustomobject]@{ Attributes = [IO.FileAttributes]::Directory } }
+        Mock -ModuleName tailnet-desk Get-Acl {
             [pscustomobject]@{} | Add-Member -MemberType ScriptMethod -Name GetOwner -Value { param($t) [pscustomobject]@{ Value = $script:ownerSid } } -PassThru
         }
         New-PrivateFolder | Should -Not -BeNullOrEmpty
-        Should -Invoke -ModuleName TailnetDesk New-Item -Times 1 -Exactly
+        Should -Invoke -ModuleName tailnet-desk New-Item -Times 1 -Exactly
     }
     It 'makes nothing with -WhatIf' {
         New-PrivateFolder -WhatIf | Should -BeNullOrEmpty
-        Should -Invoke -ModuleName TailnetDesk New-Item -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk New-Item -Times 0 -Exactly
     }
 }
 
 Describe 'Get-PortAllowRule' {
     BeforeEach {
         # Each port filter names the rule it belongs to; each rule says its action, direction and program.
-        Mock -ModuleName TailnetDesk Get-NetFirewallPortFilter { @(
+        Mock -ModuleName tailnet-desk Get-NetFirewallPortFilter { @(
                 [pscustomobject]@{ Protocol = 'TCP'; LocalPort = @('21118'); Rule = 'open-any' }
                 [pscustomobject]@{ Protocol = 'TCP'; LocalPort = @('21000-22000'); Rule = 'open-any' }
                 [pscustomobject]@{ Protocol = 'TCP'; LocalPort = @('21118'); Rule = 'one-program' }
@@ -777,18 +777,18 @@ Describe 'Get-PortAllowRule' {
             'outbound'    = [pscustomobject]@{ Name = 'outbound'; Action = 'Allow'; Enabled = 'True'; Direction = 'Outbound'; Program = 'Any' }
             'udp'         = [pscustomobject]@{ Name = 'udp'; Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound'; Program = 'Any' }
         }
-        Mock -ModuleName TailnetDesk Get-RuleOfFilter { $script:rules[$Filter.Rule] }
-        Mock -ModuleName TailnetDesk Get-ApplicationFilterOfRule { [pscustomobject]@{ Program = $Rule.Program; Package = '' } }
-        Mock -ModuleName TailnetDesk Get-AddressFilterOfRule { [pscustomobject]@{ LocalAddress = @('Any'); RemoteAddress = @('Any') } }
+        Mock -ModuleName tailnet-desk Get-RuleOfFilter { $script:rules[$Filter.Rule] }
+        Mock -ModuleName tailnet-desk Get-ApplicationFilterOfRule { [pscustomobject]@{ Program = $Rule.Program; Package = '' } }
+        Mock -ModuleName tailnet-desk Get-AddressFilterOfRule { [pscustomobject]@{ LocalAddress = @('Any'); RemoteAddress = @('Any') } }
     }
     It 'leaves out Tailscale''s own rule (only this PC''s Tailscale addresses) and Windows app rules (with an owner)' {
-        Mock -ModuleName TailnetDesk Get-NetFirewallPortFilter { @(
+        Mock -ModuleName tailnet-desk Get-NetFirewallPortFilter { @(
                 [pscustomobject]@{ Protocol = 'Any'; LocalPort = @('Any'); Rule = 'open-any' }
                 [pscustomobject]@{ Protocol = 'Any'; LocalPort = @('Any'); Rule = 'Tailscale-In' }
                 [pscustomobject]@{ Protocol = 'Any'; LocalPort = @('Any'); Rule = 'Xbox' }) }
         $script:rules['Tailscale-In'] = [pscustomobject]@{ Name = 'Tailscale-In'; Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound'; Program = 'Any' }
         $script:rules['Xbox'] = [pscustomobject]@{ Name = 'Xbox'; Action = 'Allow'; Enabled = 'True'; Direction = 'Inbound'; Program = 'Any'; Owner = 'S-1-5-21-1-2-3-1001' }
-        Mock -ModuleName TailnetDesk Get-AddressFilterOfRule {
+        Mock -ModuleName tailnet-desk Get-AddressFilterOfRule {
             if ($Rule.Name -eq 'Tailscale-In') { [pscustomobject]@{ LocalAddress = @('100.64.0.10'); RemoteAddress = @('Any') } }
             else { [pscustomobject]@{ LocalAddress = @('Any'); RemoteAddress = @('Any') } }
         }
@@ -799,13 +799,13 @@ Describe 'Get-PortAllowRule' {
     }
     It 'reads the given policy store, such as ActiveStore, and the local store without one' {
         $null = Get-PortAllowRule -PolicyStore ActiveStore
-        Should -Invoke -ModuleName TailnetDesk Get-NetFirewallPortFilter -Times 1 -Exactly -ParameterFilter { $PolicyStore -eq 'ActiveStore' }
+        Should -Invoke -ModuleName tailnet-desk Get-NetFirewallPortFilter -Times 1 -Exactly -ParameterFilter { $PolicyStore -eq 'ActiveStore' }
         $null = Get-PortAllowRule
-        Should -Invoke -ModuleName TailnetDesk Get-NetFirewallPortFilter -Times 1 -Exactly -ParameterFilter { -not $PolicyStore }
+        Should -Invoke -ModuleName tailnet-desk Get-NetFirewallPortFilter -Times 1 -Exactly -ParameterFilter { -not $PolicyStore }
     }
     It 'never looks up the rule of a filter that does not cover the port' {
         $null = Get-PortAllowRule
-        Should -Invoke -ModuleName TailnetDesk Get-RuleOfFilter -Times 0 -ParameterFilter { $Filter.Rule -eq 'udp' }
+        Should -Invoke -ModuleName tailnet-desk Get-RuleOfFilter -Times 0 -ParameterFilter { $Filter.Rule -eq 'udp' }
     }
 }
 
@@ -846,8 +846,8 @@ Describe 'Test-OpenToAnyProgram' {
 
 Describe 'Get-FirewallRuleState' {
     It 'reads each rule''s name, direction, adapters and protocol' {
-        Mock -ModuleName TailnetDesk Get-InterfaceAliasOfRule { @('Tailscale') }
-        Mock -ModuleName TailnetDesk Get-ProtocolOfRule { 'UDP' }
+        Mock -ModuleName tailnet-desk Get-InterfaceAliasOfRule { @('Tailscale') }
+        Mock -ModuleName tailnet-desk Get-ProtocolOfRule { 'UDP' }
         $s = @(Get-FirewallRuleState -Rule @([pscustomobject]@{ DisplayName = 'RustDesk Service'; Direction = 'Inbound' }))
         $s[0].DisplayName | Should -Be 'RustDesk Service'
         $s[0].Direction | Should -Be 'Inbound'
@@ -858,32 +858,32 @@ Describe 'Get-FirewallRuleState' {
 
 Describe 'Install-Tailscale' {
     BeforeEach {
-        Mock -ModuleName TailnetDesk Get-TailscaleExe { $null }
-        Mock -ModuleName TailnetDesk Test-WingetPresent { $true }
-        Mock -ModuleName TailnetDesk Invoke-Winget { 0 }
-        Mock -ModuleName TailnetDesk Write-Host { }
+        Mock -ModuleName tailnet-desk Get-TailscaleExe { $null }
+        Mock -ModuleName tailnet-desk Test-WingetPresent { $true }
+        Mock -ModuleName tailnet-desk Invoke-Winget { 0 }
+        Mock -ModuleName tailnet-desk Write-Host { }
     }
     It 'installs the pinned version with winget' {
         Install-Tailscale
         $v = (Get-TailnetDeskSetting).TailscaleWinget
-        Should -Invoke -ModuleName TailnetDesk Invoke-Winget -Times 1 -Exactly -ParameterFilter { ($Argument -join ' ') -like "install --id Tailscale.Tailscale --exact --version $v *" }
+        Should -Invoke -ModuleName tailnet-desk Invoke-Winget -Times 1 -Exactly -ParameterFilter { ($Argument -join ' ') -like "install --id Tailscale.Tailscale --exact --version $v *" }
     }
     It 'does nothing when Tailscale is already installed' {
-        Mock -ModuleName TailnetDesk Get-TailscaleExe { 'tailscale.exe' }
+        Mock -ModuleName tailnet-desk Get-TailscaleExe { 'tailscale.exe' }
         Install-Tailscale
-        Should -Invoke -ModuleName TailnetDesk Invoke-Winget -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Invoke-Winget -Times 0 -Exactly
     }
     It 'refuses when winget is missing' {
-        Mock -ModuleName TailnetDesk Test-WingetPresent { $false }
+        Mock -ModuleName tailnet-desk Test-WingetPresent { $false }
         { Install-Tailscale } | Should -Throw '*winget is missing*'
     }
     It 'throws when winget fails' {
-        Mock -ModuleName TailnetDesk Invoke-Winget { 7 }
+        Mock -ModuleName tailnet-desk Invoke-Winget { 7 }
         { Install-Tailscale } | Should -Throw "*couldn't install Tailscale*exit code 7*"
     }
     It 'installs nothing with -WhatIf' {
         Install-Tailscale -WhatIf
-        Should -Invoke -ModuleName TailnetDesk Invoke-Winget -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Invoke-Winget -Times 0 -Exactly
     }
 }
 
@@ -896,7 +896,7 @@ Describe 'Script files' {
     }
     It 'include the module (so the ASCII test below never runs on nothing)' -ForEach @(@{ Files = $script:files }) {
         $Files.Count | Should -BeGreaterThan 0
-        ($Files | Split-Path -Leaf) | Should -Contain 'TailnetDesk.psm1'
+        ($Files | Split-Path -Leaf) | Should -Contain 'tailnet-desk.psm1'
     }
     It 'are ASCII only, because Windows PowerShell 5.1 misreads other characters: <_>' -ForEach $script:files {
         $bytes = [System.IO.File]::ReadAllBytes($_)
