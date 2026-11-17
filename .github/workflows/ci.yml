@@ -43,7 +43,7 @@ jobs:
         run: |
           Import-Module PSScriptAnalyzer -RequiredVersion 1.25.0
           $found = @('scripts/windows', 'tools') | ForEach-Object {
-            Invoke-ScriptAnalyzer -Path $_ -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+            Invoke-ScriptAnalyzer -Path $_ -Recurse -Settings ./psscriptanalyzer-settings.psd1
           }
           $found | Format-Table -AutoSize RuleName, Severity, ScriptName, Line, Message | Out-String -Width 200
           if ($found) { exit 1 }
@@ -53,6 +53,7 @@ jobs:
           Import-Module Pester -RequiredVersion 5.7.1
           $config = New-PesterConfiguration
           $config.Run.Path = 'tests/windows'
+          $config.Run.TestExtension = '.tests.ps1'
           $config.Run.Exit = $true
           $config.Output.Verbosity = 'Detailed'
           Invoke-Pester -Configuration $config
@@ -76,6 +77,7 @@ jobs:
           Import-Module Pester -RequiredVersion 5.7.1
           $config = New-PesterConfiguration
           $config.Run.Path = 'tests/windows'
+          $config.Run.TestExtension = '.tests.ps1'
           $config.Run.Exit = $true
           $config.Output.Verbosity = 'Detailed'
           Invoke-Pester -Configuration $config
