@@ -49,9 +49,19 @@ Tailscale. So:
 1. Download Tailscale from [tailscale.com/download](https://tailscale.com/download) and install it.
 2. Click the Tailscale icon by the clock (click `^` if you don't see it), choose **Log in**, and sign in. Use the
    **same account** on every device: two accounts make two separate networks that can't see each other.
+
+   ![Clicking the Tailscale icon in the hidden icons by the clock, which says "Needs authentication", then choosing Log in](images/windows/tailscale-tray-login.gif)
+
+   A browser page opens. Sign in with the account you chose, then click **Connect** to add this PC.
+
+   ![Tailscale's sign-in page with an email box and buttons to sign in with Google, Microsoft, GitHub, Apple or a passkey](images/windows/tailscale-login-page.png)
+
+   ![The Connect device page, naming this PC and the tailnet, then clicking Connect and seeing "Login successful"](images/windows/tailscale-connect-device.gif)
 3. **Turn off key expiry.** In the [admin console](https://login.tailscale.com/admin/machines), click the `...` menu
    next to this PC and choose **Disable key expiry**. Otherwise Tailscale makes the PC sign in again every 180
    days, and a host nobody sits at can't.
+
+   ![The admin console's Machines page: clicking the ... menu at the end of the PC's row and choosing Disable key expiry, after which the row shows "Expiry disabled"](images/windows/tailscale-admin-key-expiry.gif)
 4. Note this PC's address starting with `100.` from the admin console: the controller connects to it.
 
 ### 2. RustDesk
@@ -72,6 +82,8 @@ them. Do this before turning on direct IP access in step 4, so RustDesk is never
 
 **Open PowerShell as administrator:** press the Windows key, type `powershell`, right-click **Windows PowerShell**
 and choose **Run as administrator**, then click **Yes**. The window title starts with "Administrator".
+
+![Typing powershell in the Start menu search, right-clicking Windows PowerShell, choosing Run as administrator, and the window that opens titled "Administrator: Windows PowerShell"](images/windows/powershell-run-as-admin.gif)
 
 Paste each command as one line and press **Enter**. Common mistakes:
 
@@ -125,6 +137,12 @@ Get-NetFirewallProfile -PolicyStore ActiveStore | Select-Object Name, Enabled, D
 Open RustDesk, click the menu next to your ID (or the gear icon) to open **Settings**, go to **Security**, and click
 **Unlock security settings** (approve the admin prompt). Menu names may differ slightly between versions.
 
+![RustDesk's main window, with the Settings tab at the top and the menu next to the ID highlighted](images/windows/rustdesk-settings-open.png)
+
+The unlocked Security page, set up as the table below says (the whitelist itself is in the next picture):
+
+![RustDesk's unlocked Security page: Accept sessions via password, Use permanent password, two-factor authentication on, Deny LAN discovery, direct IP access on port 21118, and Use IP whitelisting ticked](images/windows/rustdesk-security.png)
+
 | Where | Setting | Set it to | Why |
 |---|---|---|---|
 | Security | Password | **Use permanent password**, then **Set permanent password** | Generate a random password of 20 or more characters in your password manager, save it there, and paste it in. Never reuse it, not even on another of your computers: one leak would then open both. It lets you connect when nobody is at the host. |
@@ -134,6 +152,14 @@ Open RustDesk, click the menu next to your ID (or the gear icon) to open **Setti
 | Security | Enable direct IP access | **On**, port **21118** | The controller connects straight to the host's Tailscale address, not through RustDesk's public servers. |
 | Security | Use IP whitelisting | **On**, add only the controller's `100.x` address | RustDesk refuses everything else with "Your ip is blocked by the peer". Never add this PC's own address, and never a whole range like `100.64.0.0/10`: that lets in every device on your Tailscale network. |
 | Network | ID server and Relay server | `127.0.0.1` in both | Stops the PC registering with RustDesk's public servers, which would be a second way in outside Tailscale. RustDesk will then say it can't reach a server; that's expected. |
+
+Adding the controller to the whitelist (the example address `100.64.0.11`; use your controller's):
+
+![Ticking Use IP whitelisting, typing the controller's 100.x address in the IP Whitelisting box and clicking OK](images/windows/rustdesk-direct-ip-whitelist.gif)
+
+Setting the ID and relay servers on the Network page:
+
+![Opening Settings, Network, ID/Relay server, and typing 127.0.0.1 in ID server and Relay server, with API server and Key left empty](images/windows/rustdesk-network-servers.gif)
 
 ### 5. Never sleep while plugged in
 
