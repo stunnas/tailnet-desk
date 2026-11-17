@@ -66,7 +66,7 @@ the script; the manual path installs Tailscale's current release, and Tailscale 
 
 ## Folders
 
-Every file is named in kebab-case (`install-host.ps1`, `host-windows.md`), except `README.md` and `LICENSE`, which GitHub shows by those names.
+Every file is named in kebab-case (`install-host.ps1`, `host-windows.md`), except `README.md`, `LICENSE`, and the files whose tools expect a fixed name (`PSScriptAnalyzerSettings.psd1`, and Pester's `.Tests.ps1` ending).
 
 | Folder | Holds |
 |---|---|
