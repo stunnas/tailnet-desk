@@ -1,0 +1,202 @@
+# CI: runs on every PR, every push to main, weekly, and on demand. Only deterministic checks: no network
+# lookups decide a result. Actions are pinned to full commit SHAs (tag in the comment) so a moved tag can't change
+# what runs. Downloaded tools: ShellCheck, actionlint and zizmor by version and SHA-256; Pester and PSScriptAnalyzer by
+# version and SHA-256 (tools/install-ps-modules.ps1); bats by commit; gitleaks by version, fetched by its action.
+# Bump any of them by hand, to releases at least two weeks old.
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited] # edited: a title change re-runs the PR title check
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 1" # Mondays: every job except the PR title check, including a full-history secret scan
+  workflow_dispatch:
+
+# A new push cancels the older run on the same PR branch. Runs on main are never cancelled.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  SHELLCHECK_VERSION: 0.11.0 # released 2025-08-04
+  SHELLCHECK_SHA256: b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
+
+jobs:
+  powershell:
+    name: PowerShell lint and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Pester and PSScriptAnalyzer (pinned, hash-checked)
+        shell: pwsh
+        run: ./tools/install-ps-modules.ps1
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Import-Module PSScriptAnalyzer -RequiredVersion 1.25.0
+          $found = @('scripts/windows', 'tools') | ForEach-Object {
+            Invoke-ScriptAnalyzer -Path $_ -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+          }
+          $found | Format-Table -AutoSize RuleName, Severity, ScriptName, Line, Message | Out-String -Width 200
+          if ($found) { exit 1 }
+      - name: Pester (PowerShell 7)
+        shell: pwsh
+        run: |
+          Import-Module Pester -RequiredVersion 5.7.1
+          $config = New-PesterConfiguration
+          $config.Run.Path = 'tests/windows'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $config
+
+  # The scripts must work in Windows PowerShell 5.1, the version every Windows PC has.
+  powershell-5:
+    name: Pester on Windows PowerShell 5.1
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Pester and PSScriptAnalyzer (pinned, hash-checked)
+        shell: powershell
+        run: ./tools/install-ps-modules.ps1
+      - name: Pester (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          if ($PSVersionTable.PSVersion.Major -ne 5) { throw "Expected Windows PowerShell 5.1, got $($PSVersionTable.PSVersion)" }
+          Import-Module Pester -RequiredVersion 5.7.1
+          $config = New-PesterConfiguration
+          $config.Run.Path = 'tests/windows'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $config
+
+  shell:
+    name: Shell lint and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # bats is fetched by commit; ShellCheck by the version and SHA-256 in the workflow-level env. Bump by hand (see the
+    # top of this file).
+    env:
+      BATS_COMMIT: eb7f42f8d608ac693d7a4b67474f6714ea68cfc5 # v1.14.0, released 2026-07-21
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download ShellCheck and bats
+        run: |
+          cd "$RUNNER_TEMP"
+          file="shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.gz"
+          curl -fsSL --proto '=https' --retry 3 -o "$file" \
+            "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/$file"
+          printf '%s  %s\n' "$SHELLCHECK_SHA256" "$file" | sha256sum --check --strict
+          tar -xzf "$file" --strip-components=1 "shellcheck-v$SHELLCHECK_VERSION/shellcheck"
+          git init -q bats && cd bats
+          git fetch -q --depth 1 https://github.com/bats-core/bats-core "$BATS_COMMIT"
+          git checkout -q FETCH_HEAD
+      - name: ShellCheck
+        run: '"$RUNNER_TEMP/shellcheck" tools/*.sh'
+      - name: bats
+        run: '"$RUNNER_TEMP/bats/bin/bats" tests/tools'
+
+  repo-checks:
+    name: Private data and links
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The private data check catches a planted address
+        run: |
+          set +e
+          output=$(tools/check-private-data.sh tests/fixtures/planted-address.md 2>&1)
+          code=$?
+          set -e
+          echo "$output"
+          if [ "$code" -ne 1 ] || ! grep -qF 'IPv4 address 100.99.88.77' <<< "$output"; then # check-private-data: allow
+            echo "check-private-data.sh didn't report the planted address (exit $code)" >&2; exit 1
+          fi
+      - name: Private data (addresses and RustDesk IDs)
+        run: tools/check-private-data.sh
+      - name: Links and images
+        run: tools/check-links.sh
+
+  pr-title:
+    name: PR title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Conventional Commits title (it becomes the squash commit)
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|docs|test|ci|chore|refactor|perf|build|style|revert)(\([a-z0-9-]+\))?!?: [^ ].*'
+          if [[ ! $TITLE =~ $pattern ]]; then
+            echo "PR title isn't a Conventional Commit, e.g. 'feat(windows): add the host script': $TITLE" >&2
+            exit 1
+          fi
+
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ACTIONLINT_VERSION: 1.7.12 # released 2026-03-30
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+      ZIZMOR_VERSION: 1.31.1 # released 2026-10-15
+      ZIZMOR_SHA256: d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download actionlint, zizmor and ShellCheck, and check their hashes
+        run: |
+          base=https://github.com
+          actionlint_file="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          zizmor_file=zizmor-x86_64-unknown-linux-gnu.tar.gz
+          shellcheck_file="shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -fsSL --proto '=https' --retry 3 -o "$actionlint_file" \
+            "$base/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/$actionlint_file"
+          curl -fsSL --proto '=https' --retry 3 -o "$zizmor_file" \
+            "$base/zizmorcore/zizmor/releases/download/v$ZIZMOR_VERSION/$zizmor_file"
+          curl -fsSL --proto '=https' --retry 3 -o "$shellcheck_file" \
+            "$base/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/$shellcheck_file"
+          printf '%s  %s\n' "$ACTIONLINT_SHA256" "$actionlint_file" "$ZIZMOR_SHA256" "$zizmor_file" \
+            "$SHELLCHECK_SHA256" "$shellcheck_file" | sha256sum --check --strict
+          tar -xzf "$actionlint_file" actionlint
+          tar -xzf "$zizmor_file" zizmor
+          tar -xzf "$shellcheck_file" --strip-components=1 "shellcheck-v$SHELLCHECK_VERSION/shellcheck"
+      - name: actionlint (with ShellCheck on run steps)
+        run: '"$RUNNER_TEMP/actionlint" -shellcheck="$RUNNER_TEMP/shellcheck"'
+      - name: zizmor (offline audits only, so the result can't change without a commit)
+        run: '"$RUNNER_TEMP/zizmor" --offline --strict-collection --no-progress .github'
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read # gitleaks lists the PR's commits
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # gitleaks needs the history to find which commits to scan
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false
+          GITLEAKS_VERSION: 8.30.1 # released 2026-03-21
