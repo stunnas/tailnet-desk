@@ -28,21 +28,21 @@ teardown() {
   printf '%s\n' '![shot](images/missing.png)' > docs/guide.md
   run "$CHECK" docs/guide.md
   [ "$status" -eq 1 ]
-  [[ "$output" == *"broken link to images/missing.png"* ]]
+  [[ "$output" == *"broken link to images/missing.png"* ]] || false
 }
 
 @test "fails a missing page and reports the line" {
   printf 'ok\n[gone](gone.md)\n' > docs/guide.md
   run "$CHECK" docs/guide.md
   [ "$status" -eq 1 ]
-  [[ "$output" == *"guide.md:2:"* ]]
+  [[ "$output" == *"guide.md:2:"* ]] || false
 }
 
 @test "fails an anchor with no matching heading, in another file or the same one" {
   printf '%s\n' '[x](other.md#step-2)' > docs/guide.md
   run "$CHECK" docs/guide.md
   [ "$status" -eq 1 ]
-  [[ "$output" == *"no heading for #step-2"* ]]
+  [[ "$output" == *"no heading for #step-2"* ]] || false
   printf '%s\n' '# Top' '[x](#bottom)' > docs/guide.md
   run "$CHECK" docs/guide.md
   [ "$status" -eq 1 ]
@@ -52,7 +52,7 @@ teardown() {
   printf '%s\n' '[x](../../outside.md)' > docs/guide.md
   run "$CHECK" docs/guide.md
   [ "$status" -eq 1 ]
-  [[ "$output" == *"outside the repository"* ]]
+  [[ "$output" == *"outside the repository"* ]] || false
 }
 
 @test "fails a link through a symlinked folder partway along the path" {
@@ -61,7 +61,7 @@ teardown() {
   printf '%s\n' '[x](via/far.md)' > docs/guide.md
   run "$CHECK" docs/guide.md
   [ "$status" -eq 1 ]
-  [[ "$output" == *"outside the repository"* ]]
+  [[ "$output" == *"outside the repository"* ]] || false
 }
 
 @test "numbers repeated headings the way GitHub does" {
@@ -97,7 +97,7 @@ teardown() {
   printf '%s\n' '[x](sneaky.md#outside)' > docs/guide.md
   run "$CHECK" docs/guide.md
   [ "$status" -eq 1 ]
-  [[ "$output" == *"symlink"* ]]
+  [[ "$output" == *"symlink"* ]] || false
 }
 
 @test "without arguments, skips tests/fixtures/ and tracked symlinks" {

@@ -3,7 +3,7 @@
 See and use one computer's screen from another, from anywhere, without opening anything to the internet.
 [RustDesk](https://github.com/rustdesk/rustdesk) shows the screen; [Tailscale](https://tailscale.com) is a
 private network between your own devices that carries it. The guides are written for beginners, and scripts do the
-repeatable parts on Windows.
+repeatable parts on Windows and Mac.
 
 ## Host and controller
 
@@ -23,13 +23,13 @@ Follow one host guide and one controller guide.
 | Host (being controlled) | Guide |
 |---|---|
 | Windows PC | [Set up a Windows host](docs/host-windows.md) |
-| Mac | Coming in phase 2 |
+| Mac | [Set up a Mac host](docs/host-mac.md) |
 
 | Controller (in front of you) | Guide |
 |---|---|
 | Windows PC | [Set up a Windows controller](docs/controller-windows.md) |
-| Mac | Coming in phase 2 |
-| iPhone | Coming in phase 3 |
+| Mac | [Set up a Mac controller](docs/controller-mac.md) |
+| iPhone | [Set up an iPhone controller](docs/controller-iphone.md) |
 
 New to words like port, firewall or IP address? Read the [glossary](docs/glossary.md) first.
 
@@ -58,26 +58,35 @@ controllers locked, and don't let RustDesk remember the host's password on them
 | [`test-host.ps1`](scripts/windows/test-host.ps1) | Windows host, as administrator | Checks the host's setup. Changes nothing. |
 | [`test-from-controller.ps1`](scripts/windows/test-from-controller.ps1) | Windows controller | Checks the host answers over Tailscale and not over the home network. Changes nothing. |
 | [`undo-host-firewall.ps1`](scripts/windows/undo-host-firewall.ps1) | Windows host, as administrator | Puts RustDesk's Allow rules back on every network adapter. Edge traversal stays Block. |
+| [`install-host.sh`](scripts/mac/install-host.sh) | Mac host, in Terminal | Installs RustDesk if it's missing, sets its security settings, stops sleep on the charger, then checks the result. Tailscale, RustDesk's service and its macOS permissions stay manual. Never sets or shows a password. |
+| [`test-host.sh`](scripts/mac/test-host.sh) | Mac host, in Terminal | Checks the host's setup. Changes nothing. |
+| [`test-from-controller.sh`](scripts/mac/test-from-controller.sh) | Mac controller, in Terminal | Checks a Windows or Mac host answers over Tailscale and not over the home network. Changes nothing. |
+| [`enable-pf.sh`](scripts/mac/enable-pf.sh) / [`undo-pf.sh`](scripts/mac/undo-pf.sh) | Mac host, in Terminal | Optional: lets RustDesk's port answer only to addresses in Tailscale's ranges (which a few carrier-grade NAT networks also use), also after a restart / undoes it. |
 
-The scripts install pinned versions and check RustDesk's SHA-256 fingerprint before running it. Both pins are set in
-one place, `Setting` at the top of [`tailnet-desk.psm1`](scripts/windows/tailnet-desk.psm1): open it and read the
-lines `RustDeskVersion = '...'` (also used by the guides' manual path) and `TailscaleWinget = '...'` (used only by
-the script; the manual path installs Tailscale's current release, and Tailscale updates itself either way). They're written in PowerShell, which every Windows PC has, and the repo's checks in bash.
+The scripts install pinned versions and check RustDesk's SHA-256 fingerprint before running it. On Windows the pins
+are in `Setting` at the top of [`tailnet-desk.psm1`](scripts/windows/tailnet-desk.psm1): open it and read the lines
+`RustDeskVersion = '...'` (also used by the guides' manual path) and `TailscaleWinget = '...'` (used only by the
+script; the manual path installs Tailscale's current release, and Tailscale updates itself either way). On a Mac they
+are at the top of [`tailnet-desk.sh`](scripts/mac/tailnet-desk.sh), with RustDesk's Apple signing team, which the
+script checks too; Tailscale is installed by hand there. The RustDesk version is the same on both, and a test checks
+that. The Windows scripts are PowerShell, which every Windows PC has; the Mac scripts and the repo's checks are bash,
+and the Mac scripts run on the bash 3.2 every Mac has.
 
 ## Folders
 
-Every file is named in kebab-case (`install-host.ps1`, `host-windows.md`), except `README.md`, `LICENSE`, and the files whose tools expect a fixed name (`PSScriptAnalyzerSettings.psd1`, and Pester's `.Tests.ps1` ending).
+Every file is named in kebab-case (`install-host.ps1`, `install-host.sh`, `host-windows.md`), except `README.md`, `LICENSE`, and the files whose tools expect a fixed name (`PSScriptAnalyzerSettings.psd1`, and Pester's `.Tests.ps1` ending).
 
 | Folder | Holds |
 |---|---|
 | `docs/` | The guides, the glossary and the screenshot rules |
 | `scripts/windows/` | The Windows scripts and their shared module |
-| `tests/` | Pester tests for the Windows module, bats tests for the repo checks, and planted test data |
+| `scripts/mac/` | The Mac scripts and their shared library |
+| `tests/` | Pester tests for the Windows module, bats tests for the Mac library and the repo checks, and planted test data |
 | `tools/` | The repo's own checks (private data, links) and the CI module installer |
 
 ## Status
 
-Phase 1 (Windows) is being tested.
+Phase 1 (Windows) is being tested; phase 2 (Mac) and the iPhone guide are being written.
 
 | Part | Tested how |
 |---|---|
@@ -85,6 +94,9 @@ Phase 1 (Windows) is being tested.
 | The shared module (`tailnet-desk.psm1`) | Its checks are tested automatically, and so are most of its steps, with the Windows commands they call replaced by stand-ins (mocks). The firewall reads that pass rules from one Windows command to the next aren't. |
 | The four scripts themselves | Not tested automatically: their step order and how they combine the module's results are checked only by running them. |
 | The scripts on a real PC | On a Windows 11 PC that already had Tailscale and RustDesk 1.5.3, `install-host.ps1 -ControllerIp` ran every step and its check passed, and `test-host.ps1` passed after it. From the controller, RustDesk's port answered over Tailscale and not on the home network, and a device not on the whitelist was refused. An earlier run also tried the locked-installer launch, which worked. Not yet run on a real PC: installing Tailscale and RustDesk with the script, and `test-from-controller.ps1`. |
+| Mac guides | The manual host steps for RustDesk's install, service, permissions and security settings match a MacBook set up as a host with RustDesk 1.5.3 and used from an iPhone. Not yet followed: the manual pf commands, the macOS firewall step and the Mac controller guide. RustDesk's Mac buttons were checked on that Mac: Install adds its startup items, Stop service removes them, and Start service alone doesn't bring them back. |
+| The Mac scripts | The library's checks that don't touch the system are tested automatically on macOS's own bash 3.2; the scripts' own steps are checked only by running them. `test-host.sh` and `install-host.sh` (with `--keep-sleep`) ran on a MacBook that was already a host: all checks passed, and the run fixed one setting. `enable-pf.sh` and `undo-pf.sh` ran there too: with pf on, the iPhone still connected over Tailscale and got "Failed to connect" on the Mac's Wi-Fi address; the undo removed everything and turned iCloud Private Relay back on. After a restart with pf on, `test-host.sh` passed the firewall line (with an earlier version of the pf step). With the scripts as of ab7b3f3 (only the undo's token-file read changed after it), `enable-pf.sh` twice, `test-host.sh` (all PASS, including the signing check) and `undo-pf.sh` ran there, and Private Relay came back on, so the second run released the first one's pf reference and the undo released the last. Not yet run: a fresh install, the sleep step, the undo's path for a pf reference it can't release (tested only through its decision function). `test-from-controller.sh` ran on a Mac controller against a Windows host: the host's port answered over Tailscale and not on the home network. |
+| iPhone guide | Partly followed with a Mac host: connecting over Tailscale asked for the permanent password and the two-factor code, and the Mac's Wi-Fi address got "Failed to connect" with its firewall step on. The app's other buttons and settings aren't confirmed yet. With a Windows host, an iPhone not on the whitelist got "Your ip is blocked by the peer"; the rest isn't followed with a Windows host yet. |
 
 ## License
 
