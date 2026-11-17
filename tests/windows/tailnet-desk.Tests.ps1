@@ -1,6 +1,6 @@
 # Pester 5 tests for scripts/windows/tailnet-desk.psm1. They change nothing on the system: the checks are pure, and the
 # tests of system functions mock every system call. CI runs them in PowerShell 7 on Linux and Windows PowerShell 5.1
-# on Windows. Run locally: Invoke-Pester -Configuration @{ Run = @{ Path = 'tests/windows'; TestExtension = '.tests.ps1' } }
+# on Windows. Run locally: Invoke-Pester -Path tests/windows
 
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot '../../scripts/windows/tailnet-desk.psm1') -Force
