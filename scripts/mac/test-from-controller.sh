@@ -11,7 +11,7 @@
 #                        when you're away from home.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-# shellcheck source=scripts/mac/tailnet-desk.sh
+# shellcheck source=SCRIPTDIR/tailnet-desk.sh
 . "$here/tailnet-desk.sh"
 
 host_ts=''
