@@ -29,8 +29,8 @@ $script:Setting = [pscustomobject]@{
     # Released 2026-11-09. Bump together with RustDeskSha256, then re-test and update the README's Status.
     RustDeskVersion = '1.5.3'
     RustDeskSha256  = '523ba0efbf62a21739961b62c7daaffb44d3da86139c546b364fd4e1333ed249'
-    # Tailscale's own Windows installer (MSI) from its package server. Released 2026-10-28: the same version the Mac
-    # script installs (tests/mac checks it). Bump together with the SHA-256; afterwards Tailscale's updater applies.
+    # Tailscale's own Windows installer (MSI) from its package server, released 2026-10-28. Bump together with the
+    # SHA-256; afterwards Tailscale's updater applies.
     TailscaleVersion   = '1.104.4'
     TailscaleMsiSha256 = '1d12cd8b1d6dbb447da8579b1a5268ae2fc050967bebfaa02e32d2bb645ef6ee'
     TailscalePkgBase   = 'https://pkgs.tailscale.com/stable'
@@ -690,16 +690,26 @@ function Get-SignatureFinding {
         [Parameter(Mandatory)][string]$Detail
     )
     try { $pass = Test-PublisherSignature -Signature (Get-FileSignature -Path $Path) -Publisher $Publisher }
-    catch { $pass = $false }
+    catch {
+        $pass = $false
+        $Detail = "couldn't read its signature ($($_.Exception.Message)); $Detail"
+    }
     return [pscustomobject]@{ Check = "$Name is signed by its publisher ($Publisher)"; Pass = $pass; Detail = $Detail }
 }
 
 function Get-TailscaleIPv4 {
-    <# .SYNOPSIS This PC's Tailscale address, or $null when Tailscale isn't installed or isn't signed in. #>
+    <#
+    .SYNOPSIS
+    This PC's Tailscale address, or $null when Tailscale isn't installed or isn't signed in. tailscale.exe is only run
+    when it carries Tailscale's valid signature; otherwise this gives $null too, and the signature check says why.
+    #>
     [CmdletBinding()]
     param()
     $exe = Get-TailscaleExe
     if (-not $exe) { return $null }
+    try { $signed = Test-PublisherSignature -Signature (Get-FileSignature -Path $exe) -Publisher $script:Setting.TailscaleSigner }
+    catch { $signed = $false }
+    if (-not $signed) { return $null }
     $out = (& $exe ip -4 2>$null | Out-String).Trim()
     if (Test-TailscaleIPv4 -Address $out) { return $out }
     return $null
@@ -847,7 +857,11 @@ function Get-FirewallRuleState {
 # --- System changes ------------------------------------------------------------------------------------------
 
 function Use-Tls12 {
-    <# .SYNOPSIS Windows PowerShell 5.1: turns on TLS 1.2, which GitHub and Tailscale's package server need. #>
+    <#
+    .SYNOPSIS
+    Windows PowerShell 5.1: turns on TLS 1.2, which GitHub and Tailscale's package server need. Changes: this
+    PowerShell session's TLS setting.
+    #>
     [CmdletBinding()]
     param()
     if ($PSVersionTable.PSVersion.Major -lt 6) {
