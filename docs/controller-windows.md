@@ -114,6 +114,7 @@ When everything works, it prints:
 
 ```text
 Controller checks
+  PASS  Tailscale is signed by its publisher (Tailscale Inc.)
   PASS  This PC is signed in to Tailscale
   PASS  Host's Tailscale address answers on 21118
   PASS  Host's home address does NOT answer on 21118
@@ -148,6 +149,7 @@ For the home address test, this PC must be on the same home network as the host.
 |---|---|---|
 | "Not a Tailscale address" | `-HostTailscaleIp` isn't a Tailscale address (`100.64.x.x` to `100.127.x.x`). | Copy the host's address from the Tailscale admin console. |
 | "Not a home network address" | `-HostHomeIp` isn't one private IPv4 address (`192.168.x.x`, `10.x.x.x` or `172.16.x.x` to `172.31.x.x`). A Tailscale, loopback or public address wouldn't test the home network. | Use the **IPv4 Address** that `ipconfig` shows on the host, such as `192.168.0.10`. |
-| FAIL: This PC is signed in to Tailscale | Tailscale isn't signed in here. | Click the Tailscale icon by the clock and choose **Log in**. |
+| FAIL: Tailscale is signed by its publisher (Tailscale Inc.) | This PC's `tailscale.exe` doesn't carry Tailscale's valid signature, so the script doesn't run it, and "This PC is signed in to Tailscale" fails too. | Uninstall Tailscale (Settings, Apps) and install it again from [tailscale.com/download](https://tailscale.com/download). |
+| FAIL: This PC is signed in to Tailscale | Tailscale isn't signed in here (or its signature check above failed). | Click the Tailscale icon by the clock and choose **Log in**. |
 | FAIL: Host's Tailscale address answers on 21118 | The host can't be reached over Tailscale on RustDesk's port. | Check Tailscale is connected on both, the host is awake, and direct IP access is on there. Then [check the host](host-windows.md#check-the-host). |
 | FAIL: Host's home address does NOT answer on 21118 | The host answers on the home network, so its firewall step isn't working. | [Check the host](host-windows.md#check-the-host) and fix what it marks FAIL. |

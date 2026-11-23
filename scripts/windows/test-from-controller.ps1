@@ -47,6 +47,11 @@ function Test-Port([string]$Address) {
 }
 
 $findings = @()
+$tsExe = Get-TailscaleExe
+if ($tsExe) {
+    $findings += Get-SignatureFinding -Name 'Tailscale' -Path $tsExe -Publisher (Get-TailnetDeskSetting).TailscaleSigner `
+        -Detail 'uninstall Tailscale (Settings, Apps) and install it again from tailscale.com/download'
+}
 $findings += [pscustomobject]@{ Check = 'This PC is signed in to Tailscale'; Pass = [bool]$myIp; Detail = 'no Tailscale address' }
 $findings += Get-PortTestVerdict -Label "Host's Tailscale address answers on $port" `
     -Reachable (Test-Port $HostTailscaleIp) -ShouldBeReachable $true
