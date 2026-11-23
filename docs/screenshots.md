@@ -14,7 +14,9 @@ images. Cover or crop out:
 - RustDesk IDs and one-time passwords shown in RustDesk's main window.
 - Two-factor QR codes. Never commit one, even blurred: show the step with the code area cropped out.
 
-Account names, machine names, the repo owner's name and photo, and Tailscale sign-in links may show.
+Account names, machine names, the tailnet's name as Tailscale shows it at sign-in (such as `stunnas.github`), the
+repo owner's name and photo, and Tailscale sign-in links may show. MagicDNS names (ending in `.ts.net`) may not: the
+private data check blocks them in text, so cover them in images too.
 
 Blur isn't enough for text: some blurs can be reversed. Use solid boxes, and in a recording make sure they cover the
 text in every frame. Crop to the part of the screen the step is about. Save stills as PNG. Save recordings as GIF,

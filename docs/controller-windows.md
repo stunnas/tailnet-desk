@@ -33,8 +33,8 @@ Now go back to the host and add this PC's address to its whitelist
 
 ## 2. Install RustDesk
 
-1. Download it **only** from [github.com/rustdesk/rustdesk/releases](https://github.com/rustdesk/rustdesk/releases):
-   pick the release with the pinned version: open [`tailnet-desk.psm1`](../scripts/windows/tailnet-desk.psm1) and read the line
+1. Download it **only** from [github.com/rustdesk/rustdesk/releases](https://github.com/rustdesk/rustdesk/releases).
+   Pick the release with the pinned version: open [`tailnet-desk.psm1`](../scripts/windows/tailnet-desk.psm1) and read the line
    `RustDeskVersion = '...'` near the top. Then open that
    release's **Assets** and pick the file ending in `x86_64.exe`.
 2. Check it's RustDesk's own, as on the host ([host guide, step 2](host-windows.md#2-rustdesk)): right-click the
@@ -53,8 +53,9 @@ Now go back to the host and add this PC's address to its whitelist
 1. Make sure Tailscale shows **Connected** on both PCs.
 2. In RustDesk's **Control Remote Desktop** box, type the **host's** `100.x` address and click **Connect**.
 3. Enter the host's permanent password, then the 6-digit code from your authenticator app. **Leave "Remember
-   password" unticked**, and don't tick any option to trust this device for two-factor: otherwise anyone who
-   gets hold of this PC unlocked can open the host without knowing either.
+   password" unticked**: otherwise anyone who gets hold of this PC unlocked can open the host without knowing it.
+   Ticking "trust this device" (if the host allows it) skips the code here for a while; only do that on a PC that
+   stays locked, because whoever unlocks it then needs only the password.
 4. The host's screen appears. With two monitors, the monitor buttons in the toolbar switch between them. If the
    picture lags, open the display menu in the toolbar and set the frame rate to **30**.
 
@@ -92,8 +93,8 @@ Test-NetConnection 192.168.0.10 -Port 21118
 
 ### With the script (not yet tested on a real PC)
 
-The same two tests in one go. Like the host scripts, it hasn't been run on a real PC yet, so do the tests by hand
-as well until it has.
+The same two tests in one go. Unlike the host scripts, it hasn't been run on a real PC yet (see the
+[README's Status](../README.md#status)), so do the tests by hand as well until it has.
 
 1. Get the scripts as on the host ([host guide, script path, step 1](host-windows.md#1-get-the-scripts)).
 2. Open a **normal** PowerShell (not as administrator): press the Windows key, type `powershell`, press Enter.

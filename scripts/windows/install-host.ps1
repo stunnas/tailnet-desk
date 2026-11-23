@@ -6,9 +6,11 @@ Sets up this Windows PC as a RustDesk host that only answers over Tailscale.
 Run it on the HOST, the PC that will be controlled, in PowerShell as administrator. It is safe to run again: each
 step skips what is already done, and a run without -ControllerIp keeps the controllers already whitelisted.
 
-  1. Installs Tailscale (pinned version, with winget) if it's missing, then stops until you've signed in.
-  2. Installs RustDesk (pinned version) from its official GitHub release after checking the file's SHA-256, then
-     stops it using RustDesk's public ID and relay servers.
+  1. Installs Tailscale (pinned version) from Tailscale's own installer if it's missing, after checking the file's
+     SHA-256 and its publisher signature (Tailscale Inc.), then stops until you've signed in.
+  2. Installs RustDesk (pinned version) from its official GitHub release after checking the file's SHA-256 and its
+     publisher signature (PURSLANE), then stops it using RustDesk's public ID and relay servers. An existing
+     Tailscale or RustDesk is kept once its program passes the same signature check.
   3. Limits RustDesk's Windows Firewall rules to the Tailscale adapter. This comes before step 4, so direct IP access
      is never on while the firewall still lets every network in.
   4. Sets RustDesk's security settings: no public ID or relay server, permanent password only, sessions start on the
@@ -50,7 +52,8 @@ Install-Tailscale
 $myIp = Get-TailscaleIPv4
 if (-not $myIp) {
     Write-Host 'Tailscale is installed but not signed in (or not running).' -ForegroundColor Yellow
-    Write-Host 'Click the Tailscale icon in the system tray (near the clock), choose Log in, and sign in.'
+    Write-Host 'Click the Tailscale icon in the system tray (near the clock), choose Log in, and sign in. If the icon'
+    Write-Host "isn't there, open Tailscale from the Start menu first."
     Write-Host 'Then run this script again.'
     exit 2
 }

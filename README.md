@@ -41,14 +41,15 @@ Anyone who reaches a host's remote desktop could control the whole computer, so 
    internet, and the traffic is encrypted.
 2. **Firewall.** The host's RustDesk only answers through Tailscale, not through home Wi-Fi or a public network.
 3. **RustDesk's IP whitelist.** RustDesk refuses every device except your controllers.
-4. **Password and two-factor.** Each connection needs a long password and a 6-digit code from your phone.
+4. **Password and two-factor.** Each connection needs a long password and a 6-digit code from your phone. A
+   controller you choose to trust for two-factor skips the code for a while (see the host guide's security settings).
 
 The host also stops using RustDesk's public servers, so the only way in is through Tailscale.
 
 Someone on the internet or on your home network has to get past all four. Someone who has one of your controllers,
 unlocked, is already past the first three, so only the password and two-factor code stand in the way. Keep your
-controllers locked, and don't let RustDesk remember the host's password on them
-([controller guide](docs/controller-windows.md#3-connect)).
+controllers locked, don't let RustDesk remember the host's password on them, and only trust a controller for
+two-factor if it stays locked ([controller guide](docs/controller-windows.md#3-connect)).
 
 ## Scripts
 
@@ -59,12 +60,12 @@ controllers locked, and don't let RustDesk remember the host's password on them
 | [`test-from-controller.ps1`](scripts/windows/test-from-controller.ps1) | Windows controller | Checks the host answers over Tailscale and not over the home network. Changes nothing. |
 | [`undo-host-firewall.ps1`](scripts/windows/undo-host-firewall.ps1) | Windows host, as administrator | Puts RustDesk's Allow rules back on every network adapter. Edge traversal stays Block. |
 
-The scripts install pinned versions. They check RustDesk's SHA-256 fingerprint and its publisher's signature
-(`PURSLANE`) before running it, and Tailscale's publisher signature (`Tailscale Inc.`) once winget has installed it.
-Both pins are set in
-one place, `Setting` at the top of [`tailnet-desk.psm1`](scripts/windows/tailnet-desk.psm1): open it and read the
-lines `RustDeskVersion = '...'` (also used by the guides' manual path) and `TailscaleWinget = '...'` (used only by
-the script; the manual path installs Tailscale's current release, and Tailscale updates itself either way). They're written in PowerShell, which every Windows PC has, and the repo's checks in bash.
+The scripts install pinned versions and check each installer before running it: its SHA-256 fingerprint, and that
+it carries its publisher's valid signature (the [host guide's script path](docs/host-windows.md#3-first-run) has the
+details). The pins are in `Setting` at the top of [`tailnet-desk.psm1`](scripts/windows/tailnet-desk.psm1): open it
+and read the lines `RustDeskVersion = '...'` (also used by the guides' manual path) and `TailscaleVersion = '...'`
+(used only by the script; the manual path installs Tailscale's current release). The scripts are written in
+PowerShell, which every Windows PC has, and the repo's checks in bash.
 
 ## Folders
 
@@ -83,10 +84,10 @@ Phase 1 (Windows) is being tested.
 
 | Part | Tested how |
 |---|---|
-| Manual steps in the Windows guides | Followed on two PCs with RustDesk 1.5.3. Not confirmed on a real PC yet: host manual step 3, command 3 (edge traversal) and command 6 as now written (firewall profiles as Windows applies them). |
+| Manual steps in the Windows guides | Followed on two PCs with RustDesk 1.5.3. Not confirmed on a real PC yet: host manual step 3, command 3 (edge traversal) and command 6 as now written (firewall profiles as Windows applies them), and the Digital Signatures check in step 2 of both guides. |
 | The shared module (`tailnet-desk.psm1`) | Its checks are tested automatically, and so are most of its steps, with the Windows commands they call replaced by stand-ins (mocks). The firewall reads that pass rules from one Windows command to the next aren't. |
 | The four scripts themselves | Not tested automatically: their step order and how they combine the module's results are checked only by running them. |
-| The scripts on a real PC | On a Windows 11 PC that already had Tailscale and RustDesk 1.5.3, `install-host.ps1 -ControllerIp` ran every step and its check passed, and `test-host.ps1` passed after it. From the controller, RustDesk's port answered over Tailscale and not on the home network, and a device not on the whitelist was refused. An earlier run also tried the locked-installer launch, which worked. Not yet run on a real PC: installing Tailscale and RustDesk with the script, and `test-from-controller.ps1`. |
+| The scripts on a real PC | On a Windows 11 PC that already had Tailscale and RustDesk 1.5.3, `install-host.ps1 -ControllerIp` ran every step and its check passed, and `test-host.ps1` passed after it. From the controller, RustDesk's port answered over Tailscale and not on the home network, and a device not on the whitelist was refused. An earlier run also tried the locked-installer launch, which worked. Not yet run on a real PC: installing Tailscale (from its own installer) and RustDesk with the script, the publisher signature checks (added after that run, including `test-host.ps1`'s two signature lines), and `test-from-controller.ps1`. |
 
 ## License
 

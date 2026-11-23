@@ -25,25 +25,31 @@ $findings = @()
 # Tailscale
 $tsIp = Get-TailscaleIPv4
 $findings += [pscustomobject]@{ Check = 'Tailscale is signed in'; Pass = [bool]$tsIp; Detail = 'no Tailscale address' }
+$tsExe = Get-TailscaleExe
+if ($tsExe) {
+    $findings += Get-SignatureFinding -Name 'Tailscale' -Path $tsExe -Publisher $setting.TailscaleSigner `
+        -Detail 'uninstall Tailscale (Settings, Apps) and run install-host.ps1 again'
+}
 $adapter = Get-NetAdapter -Name $setting.AdapterName -ErrorAction SilentlyContinue
 $findings += [pscustomobject]@{ Check = "Network adapter '$($setting.AdapterName)' exists"; Pass = [bool]$adapter; Detail = 'run Get-NetAdapter' }
 
 # RustDesk
 $exe = Get-RustDeskExe
 $findings += [pscustomobject]@{ Check = 'RustDesk is installed'; Pass = [bool]$exe; Detail = 'not in Program Files' }
+$rustDeskSigned = $false
 if ($exe) {
-    $findings += [pscustomobject]@{
-        Check  = "RustDesk is signed by its publisher ($($setting.RustDeskSigner))"
-        Pass   = (Test-PublisherSignature -Signature (Get-FileSignature -Path $exe) -Publisher $setting.RustDeskSigner)
-        Detail = 'reinstall it from github.com/rustdesk/rustdesk'
-    }
+    $signed = Get-SignatureFinding -Name 'RustDesk' -Path $exe -Publisher $setting.RustDeskSigner `
+        -Detail "uninstall RustDesk and run install-host.ps1 again, which installs it from github.com/$($setting.RustDeskRepo)"
+    $findings += $signed
+    $rustDeskSigned = $signed.Pass
 }
 $svc = Get-Service -Name $setting.ServiceName -ErrorAction SilentlyContinue
 $findings += [pscustomobject]@{
     Check = 'RustDesk service is running'; Pass = [bool]($svc -and "$($svc.Status)" -eq 'Running'); Detail = "Get-Service $($setting.ServiceName)"
 }
 
-if ($exe) {
+# The settings checks run rustdesk.exe as administrator, so only a RustDesk that passed its signature check is run.
+if ($exe -and $rustDeskSigned) {
     $current = Get-RustDeskOption -Exe $exe -Key (Get-HostOptionKey)
     $findings += Get-HostSettingFinding -ControllerIp $ControllerIp -Current $current -OwnIp "$tsIp"
 
