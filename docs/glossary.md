@@ -21,7 +21,11 @@
 | **ID server / relay server** | RustDesk's public servers, used when you connect by RustDesk's 9- or 10-digit ID. These guides turn them off and connect by Tailscale address instead. |
 | **`127.0.0.1`** | A special address that always means "this same computer". Pointing a setting at it is a way of saying "nowhere else". |
 | **Service** | A program that runs in the background, even before anyone signs in. RustDesk's service is what lets you see the sign-in screen remotely. |
+| **Terminal** | The Mac's command window, in Applications → Utilities. The Mac scripts run in it. |
+| **`sudo`** | Runs one Mac command as an administrator; it asks for your Mac password. The Mac scripts use it only for the steps that need it, so run them without it. |
+| **pf** | The Mac's built-in packet filter: a firewall that decides by address and port. The optional Mac firewall step uses it. |
+| **Standalone (Tailscale)** | The Tailscale Mac app from tailscale.com, which Tailscale recommends over its App Store version. |
 | **PowerShell** | Windows' command window. Run it **as administrator** when a step changes system settings like the firewall. |
-| **Script** | A file of commands that runs them for you in order. `.ps1` files are PowerShell scripts. |
+| **Script** | A file of commands that runs them for you in order. `.ps1` files are PowerShell scripts; `.sh` files are bash scripts for the Mac. |
 | **SHA-256 / checksum** | A fingerprint of a file. The scripts store the fingerprint of each pinned installer; if a download's fingerprint differs, it isn't that file, and the script refuses to run it. |
-| **Digital signature (publisher)** | A seal the publisher puts on a program, which Windows or macOS can check. A valid signature from the right publisher (`PURSLANE` for RustDesk and `Tailscale Inc.` for Tailscale) shows the file is theirs and unchanged. The scripts check it, and the guides show how to check it by hand. |
+| **Digital signature (publisher)** | A seal the publisher puts on a program, which Windows or macOS can check. A valid signature from the right publisher (`PURSLANE` for RustDesk and `Tailscale Inc.` for Tailscale on Windows; their Apple developer teams on a Mac) shows the file is theirs and unchanged. The scripts check it, and the guides show how to check it by hand. |

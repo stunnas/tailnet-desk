@@ -8,6 +8,7 @@
 #   192.168.0.10                 example host home address
 #   100.64.0.0, 100.127.255.255  the ends of Tailscale's range 100.64.0.0/10
 #   127.0.0.1, 0.0.0.0
+#   fd7a:115c:a1e0::             the start of Tailscale's IPv6 range fd7a:115c:a1e0::/48 (no device has it)  check-private-data: allow
 # A line containing "check-private-data: allow" is skipped: use it only for made-up test values, such as range
 # boundaries in tests, never to let a real value through.
 #
@@ -59,6 +60,7 @@ for f in "${files[@]}"; do
     }
     # Global IPv6 (2000::/3) and Tailscale IPv6 (fd7a:115c:a1e0::/48), full or compressed. check-private-data: allow
     while (/(?<![0-9a-f:])((?:[23][0-9a-f]{3}|fd7a)(?::[0-9a-f]{0,4}){2,7})/gi) {
+      next if lc($1) eq "fd7a:115c:a1e0::";   # the range itself, as in fd7a:115c:a1e0::/48, not a device
       print "$ARGV:$.: IPv6 address $1\n"; $bad = 1;
     }
     # MagicDNS names reveal the tailnet name.

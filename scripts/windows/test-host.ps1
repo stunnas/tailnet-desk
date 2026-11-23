@@ -71,7 +71,7 @@ Write-Host 'Host checks' -ForegroundColor Cyan
 $ok = Write-Finding -Finding $findings
 Write-Host ''
 if ($ok) {
-    Write-Host 'All host checks passed. Now run test-from-controller.ps1 on the controller.' -ForegroundColor Green
+    Write-Host 'All host checks passed. Now test from the controller: test-from-controller.ps1 on a Windows PC, test-from-controller.sh on a Mac.' -ForegroundColor Green
     exit 0
 }
 Write-Host 'Some checks failed. See docs/host-windows.md, "When something goes wrong".' -ForegroundColor Red

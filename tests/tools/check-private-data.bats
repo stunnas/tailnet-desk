@@ -31,14 +31,14 @@ check_text() {
 @test "fails a real-looking Tailscale address" {
   check_text 'My host is 100.99.88.77.'
   [ "$status" -eq 1 ]
-  [[ "$output" == *"IPv4 address 100.99.88.77"* ]]
+  [[ "$output" == *"IPv4 address 100.99.88.77"* ]] || false
 }
 
 @test "fails both addresses in a comma-separated whitelist" {
   check_text 'whitelist = 100.90.1.2,100.90.3.4'
   [ "$status" -eq 1 ]
-  [[ "$output" == *"100.90.1.2"* ]]
-  [[ "$output" == *"100.90.3.4"* ]]
+  [[ "$output" == *"100.90.1.2"* ]] || false
+  [[ "$output" == *"100.90.3.4"* ]] || false
 }
 
 @test "fails a home address inside a command" {
@@ -49,7 +49,7 @@ check_text() {
 @test "fails a global IPv6 address, full and compressed" {
   check_text 'Connect to [2001:db8:1:2:3:4:5:6]:21118'
   [ "$status" -eq 1 ]
-  [[ "$output" == *"IPv6 address"* ]]
+  [[ "$output" == *"IPv6 address"* ]] || false
   check_text 'or [2001:db8::1]'
   [ "$status" -eq 1 ]
 }
@@ -57,20 +57,27 @@ check_text() {
 @test "fails a Tailscale IPv6 address" {
   check_text 'Its IPv6 is fd7a:115c:a1e0::1234:5678'
   [ "$status" -eq 1 ]
-  [[ "$output" == *"IPv6 address"* ]]
+  [[ "$output" == *"IPv6 address"* ]] || false
+}
+
+@test "passes Tailscale's IPv6 range itself, written as fd7a:115c:a1e0::/48" {
+  check_text 'pass in quick inet6 proto tcp from fd7a:115c:a1e0::/48 to fd7a:115c:a1e0::/48 port 21118'
+  [ "$status" -eq 0 ]
+  check_text 'Its IPv6 is FD7A:115C:A1E0::9'
+  [ "$status" -eq 1 ]
 }
 
 @test "fails a MagicDNS name" {
   check_text 'Connect to my-desktop.tail1234.ts.net'
   [ "$status" -eq 1 ]
-  [[ "$output" == *"MagicDNS name"* ]]
+  [[ "$output" == *"MagicDNS name"* ]] || false
 }
 
 @test "fails 9- and 10-digit RustDesk IDs, plain and spaced" {
   for id in 123456789 1234567890 '123 456 789' '1 234 567 890'; do
     check_text "My ID is $id"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"RustDesk ID"* ]]
+    [[ "$output" == *"RustDesk ID"* ]] || false
   done
 }
 
@@ -109,7 +116,7 @@ check_text() {
   printf 'fine\nhost 100.99.88.77\n' > "$TMP/two.md"
   run "$CHECK" "$TMP/two.md"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"two.md:2:"* ]]
+  [[ "$output" == *"two.md:2:"* ]] || false
 }
 
 @test "fails when a named file doesn't exist" {
@@ -130,7 +137,7 @@ check_text() {
   git add docs/leak.md
   run "$CHECK"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"docs/leak.md:1:"* ]]
+  [[ "$output" == *"docs/leak.md:1:"* ]] || false
 }
 
 @test "without arguments, works from a subfolder and fails when nothing is tracked" {

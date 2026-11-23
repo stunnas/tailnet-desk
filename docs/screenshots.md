@@ -42,3 +42,34 @@ and the private data check can scan it. Save these in `docs/images/windows/`.
 | `rustdesk-2fa-prompt.png` | The 6-digit code prompt when connecting | Controller 3 |
 
 The last two need a Windows controller.
+
+## Shot list: Mac
+
+None are taken yet. As for Windows, script output is shown as text in the guide, not as a screenshot.
+
+| File | Shows | Guide and step |
+|---|---|---|
+| `tailscale-mac-extension.png` | macOS asking to allow Tailscale's network extension | Host manual 1, controller 1 |
+| `rustdesk-mac-install-service.png` | RustDesk's prompt to install its service | Host manual 2 |
+| `privacy-screen-recording.png` | Privacy & Security → Screen & System Audio Recording with RustDesk on | Host manual 2 |
+| `privacy-accessibility.png` | Privacy & Security → Accessibility with RustDesk on | Host manual 2 |
+| `rustdesk-mac-security.png` | RustDesk's Security settings (ID and password covered) | Host manual 3 |
+| `battery-prevent-sleep.png` | Battery → Options with "Prevent automatic sleeping on the power adapter" on | Host manual 4 |
+| `macos-firewall-options.png` | Network → Firewall → Options with stealth mode on | Optional macOS firewall |
+
+Save these in `docs/images/mac/`.
+
+## Shot list: iPhone
+
+None are taken yet. Taken on the iPhone (the owner takes these: press the side button and volume up together). Crop the status bar out:
+it can show the carrier, time and notifications.
+
+| File | Shows | Guide and step |
+|---|---|---|
+| `tailscale-ios-connected.png` | Tailscale app showing Connected (addresses covered) | iPhone 1 |
+| `rustdesk-ios-app-store.png` | The App Store page for RustDesk Remote Desktop by Purslane Limited | iPhone 2 |
+| `rustdesk-ios-remote-id.png` | The Remote ID box with an example `100.x` address typed in | iPhone 3 |
+| `rustdesk-ios-2fa-prompt.png` | The 6-digit code prompt when connecting | iPhone 3 |
+| `rustdesk-ios-display-menu.png` | The session's display menu with frame rate and image quality | iPhone 3 |
+
+Save these in `docs/images/iphone/`.

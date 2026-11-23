@@ -29,8 +29,8 @@ $script:Setting = [pscustomobject]@{
     # Released 2026-11-09. Bump together with RustDeskSha256, then re-test and update the README's Status.
     RustDeskVersion = '1.5.3'
     RustDeskSha256  = '523ba0efbf62a21739961b62c7daaffb44d3da86139c546b364fd4e1333ed249'
-    # Tailscale's own Windows installer (MSI) from its package server, released 2026-10-28. Bump together with the
-    # SHA-256; afterwards Tailscale's updater applies.
+    # Tailscale's own Windows installer (MSI) from its package server, released 2026-10-28: the same version the Mac
+    # script installs (tests/mac checks it). Bump together with the SHA-256; afterwards Tailscale's updater applies.
     TailscaleVersion   = '1.104.4'
     TailscaleMsiSha256 = '1d12cd8b1d6dbb447da8579b1a5268ae2fc050967bebfaa02e32d2bb645ef6ee'
     TailscalePkgBase   = 'https://pkgs.tailscale.com/stable'

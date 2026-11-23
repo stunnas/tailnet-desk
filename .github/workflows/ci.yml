@@ -2,6 +2,7 @@
 # lookups decide a result. Actions are pinned to full commit SHAs (tag in the comment) so a moved tag can't change
 # what runs. Downloaded tools: ShellCheck, actionlint and zizmor by version and SHA-256; Pester and PSScriptAnalyzer by
 # version and SHA-256 (tools/install-ps-modules.ps1); bats by commit; gitleaks by version, fetched by its action.
+# The Mac scripts' tests run on a macOS runner, so they use macOS's own /bin/bash 3.2, the version they're written for.
 # Bump any of them by hand, to releases at least two weeks old.
 name: CI
 
@@ -23,6 +24,7 @@ permissions:
   contents: read
 
 env:
+  BATS_COMMIT: eb7f42f8d608ac693d7a4b67474f6714ea68cfc5 # v1.14.0, released 2026-07-21
   SHELLCHECK_VERSION: 0.11.0 # released 2025-08-04
   SHELLCHECK_SHA256: b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6
 
@@ -84,10 +86,8 @@ jobs:
     name: Shell lint and tests
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # bats is fetched by commit; ShellCheck by the version and SHA-256 in the workflow-level env. Bump by hand (see the
-    # top of this file).
-    env:
-      BATS_COMMIT: eb7f42f8d608ac693d7a4b67474f6714ea68cfc5 # v1.14.0, released 2026-07-21
+    # bats is fetched by commit and ShellCheck by version and SHA-256, both from the workflow-level env. Bump by hand
+    # (see the top of this file).
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -104,9 +104,35 @@ jobs:
           git fetch -q --depth 1 https://github.com/bats-core/bats-core "$BATS_COMMIT"
           git checkout -q FETCH_HEAD
       - name: ShellCheck
-        run: '"$RUNNER_TEMP/shellcheck" tools/*.sh'
+        run: |
+          "$RUNNER_TEMP/shellcheck" -x -P scripts/mac tools/*.sh scripts/mac/*.sh
+          # The pf step writes this loader onto the Mac and runs it as root at every boot, so it's linted too.
+          bash -c '. scripts/mac/tailnet-desk.sh; td_pf_loader' > "$RUNNER_TEMP/load-pf.sh"
+          "$RUNNER_TEMP/shellcheck" -s bash "$RUNNER_TEMP/load-pf.sh"
       - name: bats
         run: '"$RUNNER_TEMP/bats/bin/bats" tests/tools'
+
+  mac:
+    name: Mac scripts on macOS bash 3.2
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download bats
+        run: |
+          cd "$RUNNER_TEMP"
+          git init -q bats && cd bats
+          git fetch -q --depth 1 https://github.com/bats-core/bats-core "$BATS_COMMIT"
+          git checkout -q FETCH_HEAD
+      - name: bats (Mac scripts, under /bin/bash)
+        run: |
+          /bin/bash --version | head -n 1
+          /bin/bash -c '[ "${BASH_VERSINFO[0]}" -eq 3 ] && [ "${BASH_VERSINFO[1]}" -eq 2 ]' ||
+            { echo 'Expected macOS bash 3.2 at /bin/bash' >&2; exit 1; }
+          for f in scripts/mac/*.sh; do /bin/bash -n "$f"; done
+          "$RUNNER_TEMP/bats/bin/bats" tests/mac
 
   repo-checks:
     name: Private data and links

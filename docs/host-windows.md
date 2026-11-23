@@ -3,7 +3,8 @@
 [Back to the README](../README.md) · [Glossary](glossary.md)
 
 > **Do this on the HOST**: the Windows PC that will be controlled (for example the desktop you leave at home).
-> The device you'll sit at is the controller; it has [its own guide](controller-windows.md).
+> The device you'll sit at is the controller; it has its own guide: [Windows](controller-windows.md),
+> [Mac](controller-mac.md) or [iPhone](controller-iphone.md).
 
 When you're done, this PC can be reached by RustDesk from your controllers, only through Tailscale, only with a
 password and a two-factor code, and from nowhere else.
@@ -36,7 +37,8 @@ The host's whitelist needs the controller's Tailscale address, and the controlle
 Tailscale. So:
 
 1. **Host:** this guide, steps 1 and 2 of the manual path (or the script's first run).
-2. **Controller:** [its guide, step 1](controller-windows.md#1-join-tailscale). Note its `100.x` address.
+2. **Controller:** its guide, step 1 ([Windows](controller-windows.md#1-join-tailscale), [Mac](controller-mac.md#1-join-tailscale)
+   or [iPhone](controller-iphone.md#1-join-tailscale)). Note its `100.x` address.
 3. **Host:** finish this guide with the controller's address in the whitelist.
 4. **Controller:** [connect](controller-windows.md#3-connect) and [run the tests](controller-windows.md#test-from-the-controller).
 
@@ -285,7 +287,7 @@ Host checks
   PASS  Given controller address '100.64.0.11' is one Tailscale address
   ...   (the rest are the same lines as in "Check the host" below)
 
-All host checks passed. Now run test-from-controller.ps1 on the controller.
+All host checks passed. Now test from the controller: test-from-controller.ps1 on a Windows PC, test-from-controller.sh on a Mac.
 ```
 
 After that it lists the password and two-factor steps for you to do in RustDesk, and this PC's Tailscale address
@@ -342,7 +344,7 @@ Host checks
   PASS  Rule 'rustdesk.exe' (Inbound, TCP) only on Tailscale
   PASS  Rule 'rustdesk.exe' (Inbound, UDP) only on Tailscale
 
-All host checks passed. Now run test-from-controller.ps1 on the controller.
+All host checks passed. Now test from the controller: test-from-controller.ps1 on a Windows PC, test-from-controller.sh on a Mac.
 ```
 
 The rule lines depend on your PC: the `rustdesk.exe` pair only appears if Windows asked whether to allow RustDesk
@@ -415,6 +417,7 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 |---|---|---|
 | "Your ip is blocked by the peer" on the controller | The controller's address isn't on the whitelist, or Tailscale is off on the controller. | Check the controller's `100.x` address and add it (manual step 4, or the script's second run). |
 | Lost the phone with the authenticator app | You can't pass two-factor. | Sit at the host, turn two-factor off and on in RustDesk's Security settings, and scan the new QR code. |
+| Lost a controller (laptop or phone) | If it saved the password or was trusted for two-factor, anyone who unlocks it can connect. | At the host, remove it under **Manage trusted devices** (Security settings), change the permanent password, and remove its `100.x` address from the whitelist. Also remove it from the [Tailscale admin console](https://login.tailscale.com/admin/machines). |
 
 **Undo the firewall step** (admin PowerShell, in `scripts\windows`). It puts RustDesk's Allow rules back on every
 network adapter. The edge traversal setting (whether a rule may let in connections from outside your router) stays
