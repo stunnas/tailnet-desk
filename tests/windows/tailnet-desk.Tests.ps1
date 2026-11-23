@@ -275,6 +275,9 @@ Describe 'Get-SubjectField' {
         Get-SubjectField -Subject 'CN=PURSLANE, O=PURSLANE, O=Other' -Field 'O' | Should -BeNullOrEmpty
         Get-SubjectField -Subject 'CN=PURSLANE, O="unclosed' -Field 'CN' | Should -BeNullOrEmpty
     }
+    It 'turns doubled quotes inside a quoted value into one' {
+        Get-SubjectField -Subject 'CN=X, O="A ""B"" C"' -Field 'O' | Should -Be 'A "B" C'
+    }
 }
 
 Describe 'Test-PublisherSignature' {
@@ -320,7 +323,9 @@ Describe 'Get-SignatureFinding' {
         Mock -ModuleName tailnet-desk Get-FileSignature { [pscustomobject]@{ Status = 'HashMismatch'; SignerCertificate = $null } }
         (Get-SignatureFinding -Name 'RustDesk' -Path 'rustdesk.exe' -Publisher 'PURSLANE' -Detail 'x').Pass | Should -BeFalse
         Mock -ModuleName tailnet-desk Get-FileSignature { throw 'in use' }
-        (Get-SignatureFinding -Name 'RustDesk' -Path 'rustdesk.exe' -Publisher 'PURSLANE' -Detail 'x').Pass | Should -BeFalse
+        $f = Get-SignatureFinding -Name 'RustDesk' -Path 'rustdesk.exe' -Publisher 'PURSLANE' -Detail 'x'
+        $f.Pass | Should -BeFalse
+        $f.Detail | Should -BeLike "*couldn't read its signature (in use)*"
     }
 }
 
@@ -441,7 +446,21 @@ Describe 'Get-TailscaleIPv4' {
         $script:fakeTailscale = Join-Path $TestDrive 'fake-tailscale.ps1'
         Set-Content -LiteralPath $script:fakeTailscale -Value '$env:FAKE_TAILSCALE_OUT'
     }
+    BeforeEach {
+        Mock -ModuleName tailnet-desk Get-FileSignature {
+            [pscustomobject]@{ Status = 'Valid'; SignerCertificate = [pscustomobject]@{ Subject = 'CN=Tailscale Inc., O=Tailscale Inc.' } }
+        }
+    }
     AfterEach { Remove-Item Env:\FAKE_TAILSCALE_OUT -ErrorAction SilentlyContinue }
+    It 'never runs a tailscale.exe without Tailscale''s valid signature' {
+        # The stand-in would print an address if it ran; a check that runs it anyway would return one.
+        Mock -ModuleName tailnet-desk Get-TailscaleExe { $script:fakeTailscale }
+        $env:FAKE_TAILSCALE_OUT = '100.64.0.10'
+        Mock -ModuleName tailnet-desk Get-FileSignature { [pscustomobject]@{ Status = 'NotSigned'; SignerCertificate = $null } }
+        Get-TailscaleIPv4 | Should -BeNullOrEmpty
+        Mock -ModuleName tailnet-desk Get-FileSignature { throw 'in use' }
+        Get-TailscaleIPv4 | Should -BeNullOrEmpty
+    }
     It 'returns the address Tailscale prints' {
         Mock -ModuleName tailnet-desk Get-TailscaleExe { $script:fakeTailscale }
         $env:FAKE_TAILSCALE_OUT = "100.64.0.10`r`n"
@@ -1000,6 +1019,8 @@ Describe 'Install-Tailscale' {
     It 'accepts exit code 3010 (installed, restart wanted) and throws on any other failure' {
         $script:exitCode = 3010
         Install-Tailscale
+        Should -Invoke -ModuleName tailnet-desk Get-FileSignature -Times 1 -Exactly -ParameterFilter { $Path -eq 'tailscale.exe' }
+        Should -Invoke -ModuleName tailnet-desk Write-Host -ParameterFilter { "$Object" -like '*restart*' }
         $script:tsInstalled = $false
         $script:exitCode = 1603
         { Install-Tailscale } | Should -Throw "*Tailscale's installer failed (exit code 1603)*"
@@ -1036,10 +1057,12 @@ Describe 'Install-Tailscale' {
 
 Describe 'Script files' {
     BeforeDiscovery {
-        # Every PowerShell file git tracks: Windows PowerShell 5.1 reads the scripts, the tools and these tests. git's
-        # list never follows a link out of the repo, as a recursive folder walk can in Windows PowerShell 5.1.
+        # Every PowerShell file git tracks: Windows PowerShell 5.1 reads the scripts, the tools and these tests.
+        # A recursive folder walk could follow a link out of the repo in Windows PowerShell 5.1; git's list doesn't.
         $root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
-        $script:files = @(git -C $root ls-files -- '*.ps1' '*.psm1' '*.psd1' | ForEach-Object { Join-Path $root $_ })
+        # Mode 120000 is a symbolic link: skipped, so reading the files never follows a link out of the repo.
+        $script:files = @(git -C $root ls-files -s -- '*.ps1' '*.psm1' '*.psd1' | Where-Object { $_ -notmatch '^120000 ' } |
+                ForEach-Object { Join-Path $root ($_ -split "`t", 2)[1] })
     }
     It 'include the module (so the ASCII test below never runs on nothing)' -ForEach @(@{ Files = $script:files }) {
         $Files.Count | Should -BeGreaterThan 0

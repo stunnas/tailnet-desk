@@ -235,7 +235,8 @@ What happens:
    existing RustDesk is kept, whatever its version, once its `rustdesk.exe` passes the signature check. Either way, RustDesk then stops using its
    public ID and relay servers.
 3. **The firewall:** RustDesk's Allow rules are limited to the Tailscale adapter.
-4. **RustDesk's settings:** the same as the manual table, except the password and two-factor. Direct IP access
+4. **RustDesk's settings:** the same as the manual table, except the password, two-factor and trusted devices (left
+   as you set them). Direct IP access
    stays **off** for now, because there's no controller to whitelist yet.
 5. **Sleep:** the PC no longer sleeps while plugged in.
 6. **A check** runs and prints PASS or FAIL lines, then the steps left for you.
@@ -349,7 +350,7 @@ and you said yes. A line starting `Port rule:` appears for each other rule that 
 
 **Run it again after every RustDesk update**: an update may reinstall the firewall rules without the Tailscale limit.
 
-It can't see the password or two-factor settings; check those in RustDesk. The tests that prove the firewall works
+It can't see the password, two-factor or trusted-devices settings; check those in RustDesk. The tests that prove the firewall works
 must run from the controller: see the [controller guide](controller-windows.md#test-from-the-controller).
 
 ## When something goes wrong
@@ -394,8 +395,8 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 | Tailscale is signed in | Click the Tailscale icon by the clock and choose **Log in**. |
 | Network adapter 'Tailscale' exists | Reinstall Tailscale. If `Get-NetAdapter` shows it under another name, use that name in the manual firewall commands. |
 | RustDesk is installed / RustDesk service is running | Reinstall RustDesk ([manual step 2](#2-rustdesk)), choosing **Install**. A stopped service: restart the PC. |
-| Tailscale is signed by its publisher (Tailscale Inc.) | The installed `tailscale.exe` doesn't carry Tailscale's valid signature. Uninstall Tailscale (Settings, Apps) and run `install-host.ps1` again, which installs Tailscale's own. |
-| RustDesk is signed by its publisher (PURSLANE) | The installed `rustdesk.exe` doesn't carry RustDesk's valid signature. Uninstall RustDesk and reinstall it from [github.com/rustdesk/rustdesk](https://github.com/rustdesk/rustdesk/releases) ([manual step 2](#2-rustdesk)). |
+| Tailscale is signed by its publisher (Tailscale Inc.) | The installed `tailscale.exe` doesn't carry Tailscale's valid signature, so the scripts don't run it and "Tailscale is signed in" fails too. Uninstall Tailscale (Settings, Apps) and run `install-host.ps1` again, which installs Tailscale's own. |
+| RustDesk is signed by its publisher (PURSLANE) | The installed `rustdesk.exe` doesn't carry RustDesk's valid signature, so the check skips its RustDesk setting and port lines until it does. Uninstall RustDesk and reinstall it from [github.com/rustdesk/rustdesk](https://github.com/rustdesk/rustdesk/releases) ([manual step 2](#2-rustdesk)). |
 | Given controller address ... / Whitelist entry ... is one Tailscale address | Replace it with the controller's single `100.x` address, no ranges: run `install-host.ps1 -ControllerIp` with it, or edit the whitelist in RustDesk. This fails even while direct IP access is off, so turning it on later can't bring the entry back. |
 | Whitelist doesn't include this PC's own address | Remove the host's own `100.x` address from the whitelist: only controllers belong there. |
 | Whitelist is not empty while direct IP access is on | Add the controller's address to the whitelist, or turn off direct IP access. |
