@@ -5,7 +5,7 @@
 # to an administrator and the firewall can only be read as one. Prints PASS or FAIL for each check and exits with 1 if
 # anything failed. Each FAIL line is explained in docs/host-mac.md, "When something goes wrong".
 #
-# It can't see the password, two-factor or macOS permission settings; check those in RustDesk and System Settings.
+# It can't see the password, two-factor, trusted-devices or macOS permission settings; check those in RustDesk and System Settings.
 #
 # Usage: ./test-host.sh [--controller-ip 100.64.0.11[,100.64.0.12]]
 #   --controller-ip  The Tailscale addresses that should be whitelisted. Leave it out to judge whatever the whitelist holds.

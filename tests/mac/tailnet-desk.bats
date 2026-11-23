@@ -542,8 +542,8 @@ good_sha() { printf '%s' "$CURL_BODY" | /usr/bin/shasum -a 256 | awk '{ print $1
   run_installer td_install_tailscale
   [ "$status" -eq 1 ]
   [[ "$output" == *"doesn't match the pinned one"* ]] || false
-  ! grep -q '^sudo' "$STUB_LOG"
-  ! grep -q '^pkgutil' "$STUB_LOG"
+  ! grep -q '^sudo' "$STUB_LOG" || false
+  ! grep -q '^pkgutil' "$STUB_LOG" || false
   [ -z "$(ls -A "$T/tmp")" ]
 }
 
@@ -554,7 +554,7 @@ good_sha() { printf '%s' "$CURL_BODY" | /usr/bin/shasum -a 256 | awk '{ print $1
   run_installer td_install_tailscale
   [ "$status" -eq 1 ]
   [[ "$output" == *"isn't signed by Tailscale's Apple team and notarized"* ]] || false
-  ! grep -q '^sudo' "$STUB_LOG"
+  ! grep -q '^sudo' "$STUB_LOG" || false
   [ -z "$(ls -A "$T/tmp")" ]
 }
 
@@ -574,7 +574,7 @@ good_sha() { printf '%s' "$CURL_BODY" | /usr/bin/shasum -a 256 | awk '{ print $1
   run_installer td_install_tailscale
   [ "$status" -eq 1 ]
   [[ "$output" == *"isn't signed by Tailscale's Apple team after installing"* ]] || false
-  ! grep -q '^open' "$STUB_LOG"
+  ! grep -q '^open' "$STUB_LOG" || false
 }
 
 @test "the installers clean up and run nothing with sudo when the download fails" {
@@ -586,7 +586,7 @@ good_sha() { printf '%s' "$CURL_BODY" | /usr/bin/shasum -a 256 | awk '{ print $1
     [[ "$output" == *"Couldn't download"* ]] || false
     [ -z "$(ls -A "$T/tmp")" ]
   done
-  ! grep -q '^sudo' "$STUB_LOG"
+  ! grep -q '^sudo' "$STUB_LOG" || false
 }
 
 @test "td_install_tailscale cleans up and says so when macOS's installer fails" {
@@ -596,7 +596,7 @@ good_sha() { printf '%s' "$CURL_BODY" | /usr/bin/shasum -a 256 | awk '{ print $1
   [ "$status" -eq 1 ]
   [[ "$output" == *"macOS's installer couldn't install Tailscale"* ]] || false
   [ -z "$(ls -A "$T/tmp")" ]
-  ! grep -q '^open' "$STUB_LOG"
+  ! grep -q '^open' "$STUB_LOG" || false
 }
 
 @test "the installers keep what's already installed and download nothing" {
@@ -609,7 +609,7 @@ good_sha() { printf '%s' "$CURL_BODY" | /usr/bin/shasum -a 256 | awk '{ print $1
   [ "$status" -eq 0 ]; [[ "$output" == *'Tailscale is already installed.'* ]] || false
   run_installer td_install_rustdesk
   [ "$status" -eq 0 ]; [[ "$output" == *'RustDesk is already installed.'* ]] || false
-  ! grep -q '^curl' "$STUB_LOG"
+  ! grep -q '^curl' "$STUB_LOG" || false
 }
 
 @test "td_install_rustdesk copies nothing and leaves no download when the hash or the disk image's signature fails" {
@@ -618,14 +618,14 @@ good_sha() { printf '%s' "$CURL_BODY" | /usr/bin/shasum -a 256 | awk '{ print $1
   run_installer td_install_rustdesk
   [ "$status" -eq 1 ]
   [[ "$output" == *"doesn't match the pinned one"* ]] || false
-  ! grep -q '^sudo\|^hdiutil' "$STUB_LOG"
+  ! grep -q '^sudo\|^hdiutil' "$STUB_LOG" || false
   [ -z "$(ls -A "$T/tmp")" ]
   : > "$STUB_LOG"
   export WANT_SHA=$(good_sha) CODESIGN_EXIT=1
   run_installer td_install_rustdesk
   [ "$status" -eq 1 ]
   [[ "$output" == *"disk image isn't signed by RustDesk's Apple team"* ]] || false
-  ! grep -q '^sudo\|^hdiutil' "$STUB_LOG"
+  ! grep -q '^sudo\|^hdiutil' "$STUB_LOG" || false
   [ -z "$(ls -A "$T/tmp")" ]
 }
 
@@ -635,14 +635,14 @@ good_sha() { printf '%s' "$CURL_BODY" | /usr/bin/shasum -a 256 | awk '{ print $1
   run_installer td_install_rustdesk
   [ "$status" -eq 1 ]
   [[ "$output" == *"Couldn't open the disk image"* ]] || false
-  ! grep -q '^sudo' "$STUB_LOG"
+  ! grep -q '^sudo' "$STUB_LOG" || false
   [ -z "$(ls -A "$T/tmp")" ]
   : > "$STUB_LOG"
   export ATTACH_EXIT=0 CODESIGN_FAIL='*/mount/RustDesk.app'
   run_installer td_install_rustdesk
   [ "$status" -eq 1 ]
   [[ "$output" == *"app in the disk image isn't signed by RustDesk's Apple team"* ]] || false
-  ! grep -q '^sudo' "$STUB_LOG"
+  ! grep -q '^sudo' "$STUB_LOG" || false
   grep -q '^hdiutil detach' "$STUB_LOG"
   [ -z "$(ls -A "$T/tmp")" ]
 }
@@ -673,7 +673,7 @@ good_sha() { printf '%s' "$CURL_BODY" | /usr/bin/shasum -a 256 | awk '{ print $1
   run_installer td_install_rustdesk
   [ "$status" -eq 1 ]
   [[ "$output" == *"isn't signed by RustDesk's Apple team. Delete it"* ]] || false
-  ! grep -q '^curl' "$STUB_LOG"
+  ! grep -q '^curl' "$STUB_LOG" || false
 }
 
 @test "td_rustdesk_get and td_rustdesk_set never run a RustDesk that fails its signature check with sudo" {
@@ -690,7 +690,7 @@ good_sha() { printf '%s' "$CURL_BODY" | /usr/bin/shasum -a 256 | awk '{ print $1
     [ "$status" -eq 1 ]
     [[ "$output" == *"isn't signed by RustDesk's Apple team, so it isn't run"* ]] || false
   done
-  ! grep -q '^sudo' "$STUB_LOG"
+  ! grep -q '^sudo' "$STUB_LOG" || false
 }
 
 @test "test-from-controller.sh refuses bad addresses before testing anything" {

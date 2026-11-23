@@ -133,12 +133,12 @@ echo '     "Use permanent password", so RustDesk'"'"'s one-time password no long
 echo '     Use a random 20+ character password from your password manager. Never reuse it.'
 echo '  2. Two-factor authentication: turn it on and scan the QR code with your authenticator app.'
 echo '     Never photograph or share the QR code: it is the secret.'
-echo 'On each controller, leave "Remember password" off, and only trust a controller for two-factor if it stays'
-echo 'locked: whoever unlocks a trusted controller needs only the password.'
 if [ "${#controller_args[@]}" -eq 0 ]; then
   echo '  3. When the controller is on Tailscale, run this again with its address, for example:'
   echo "     ./install-host.sh --controller-ip 100.64.0.11   (use the controller's real 100.x address)"
 fi
+echo 'On each controller, leave "Remember password" off, and only trust a controller for two-factor if it stays'
+echo 'locked: whoever unlocks a trusted controller needs only the password.'
 echo 'Optional: limit RustDesk to Tailscale in the firewall too, with ./enable-pf.sh (docs/host-mac.md).'
 echo
 echo "The controller connects to this Mac's Tailscale address: $my_ip"

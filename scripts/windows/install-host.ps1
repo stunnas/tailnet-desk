@@ -121,12 +121,12 @@ Write-Host '     "Use permanent password", so RustDesk''s one-time password no l
 Write-Host '     Use a random 20+ character password from your password manager. Never reuse it.'
 Write-Host '  2. Two-factor authentication: turn it on and scan the QR code with your authenticator app.'
 Write-Host '     Never photograph or share the QR code: it is the secret.'
-Write-Host 'On each controller, leave "Remember password" off, and only trust a controller for two-factor if it stays'
-Write-Host 'locked: whoever unlocks a trusted controller needs only the password.'
 if ($controllers.Count -eq 0) {
     Write-Host '  3. When the controller is on Tailscale, run this again with its address, for example:'
     Write-Host '     .\install-host.ps1 -ControllerIp 100.64.0.11   (use the controller''s real 100.x address)'
 }
+Write-Host 'On each controller, leave "Remember password" off, and only trust a controller for two-factor if it stays'
+Write-Host 'locked: whoever unlocks a trusted controller needs only the password.'
 Write-Host ''
 Write-Host "The controller connects to this PC's Tailscale address: $myIp"
 if (-not $checksPassed) { exit 1 }
