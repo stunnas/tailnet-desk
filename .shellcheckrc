@@ -1,0 +1,4 @@
+# ShellCheck settings, read by CI and by editors, so both lint the same way from any folder.
+# The Mac scripts load their shared library (. "$here/tailnet-desk.sh"); their source=SCRIPTDIR/... directives say
+# where it is, and this lets ShellCheck follow it.
+external-sources=true
