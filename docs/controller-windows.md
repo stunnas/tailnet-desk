@@ -37,8 +37,11 @@ Now go back to the host and add this PC's address to its whitelist
    pick the release with the pinned version: open [`tailnet-desk.psm1`](../scripts/windows/tailnet-desk.psm1) and read the line
    `RustDeskVersion = '...'` near the top. Then open that
    release's **Assets** and pick the file ending in `x86_64.exe`.
-2. Run it and choose **Install**.
-3. Two settings keep the controller from becoming a way in itself. In RustDesk, open **Settings**:
+2. Check it's RustDesk's own, as on the host ([host guide, step 2](host-windows.md#2-rustdesk)): right-click the
+   file → **Properties** → **Digital Signatures** must show **PURSLANE**, and **Details** must say "This digital
+   signature is OK".
+3. Run it and choose **Install**.
+4. Two settings keep the controller from becoming a way in itself. In RustDesk, open **Settings**:
    - **Security:** leave **Enable direct IP access** off (the default). Then nothing on this PC accepts direct
      RustDesk connections, and it needs no firewall step.
    - **Network:** set **ID server** and **Relay server** to `127.0.0.1`. Out of the box, anyone with this PC's

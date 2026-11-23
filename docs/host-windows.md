@@ -68,7 +68,11 @@ Tailscale. So:
    Pick the release with the pinned version: open [`tailnet-desk.psm1`](../scripts/windows/tailnet-desk.psm1) and read the line
    `RustDeskVersion = '...'` near the top. Then open that
    release's **Assets** and pick the file ending in `x86_64.exe`. Fake RustDesk sites hand out malware, so don't use a search ad.
-2. Run it and choose **Install** (not "Run without install"). Installing adds the RustDesk **service**, which
+2. Before running it, check it's RustDesk's own: right-click the file → **Properties** → **Digital Signatures**. The
+   list must show **PURSLANE** (the company behind RustDesk, the same name as `RustDeskSigner` in the script); select
+   it, click **Details**, and check it says "This digital signature is OK". No **Digital Signatures** tab, another
+   name or another message means it isn't RustDesk's own, so delete it.
+3. Run it and choose **Install** (not "Run without install"). Installing adds the RustDesk **service**, which
    lets you reach the PC even at the Windows sign-in screen.
 
 ### 3. Firewall: let RustDesk answer only through Tailscale
@@ -217,14 +221,15 @@ mark from these files, so Windows stops asking about them.
 
 What happens:
 
-1. **Tailscale** (the pinned version) is installed with winget, Windows' own installer, if it isn't installed yet. An
-   existing Tailscale is kept as it is. The first time, the script stops
+1. **Tailscale** (the pinned version) is installed with winget, Windows' own installer, if it isn't installed yet.
+   winget checks the installer's SHA-256 against its own catalogue, and the script then checks that the installed
+   `tailscale.exe` carries Tailscale's valid signature (`Tailscale Inc.`). An existing Tailscale is kept as it is. The first time, the script stops
    and asks you to sign in: click the Tailscale icon by the clock, choose **Log in**, and sign in. Then run the same
    command again.
 2. **RustDesk** (the pinned version), if it isn't installed yet, is downloaded from its official GitHub page into a
    new folder only administrators can change. The script checks the file's SHA-256 fingerprint against the one
-   stored in the script, keeps the file locked until the installer finishes, and refuses to run a file that doesn't
-   match. An existing RustDesk is kept as it is, whatever its version. Either way, RustDesk then stops using its
+   stored in the script and that it carries RustDesk's valid signature (`PURSLANE`, the company behind RustDesk),
+   keeps the file locked until the installer finishes, and refuses to run a file that fails either check. An existing RustDesk is kept as it is, whatever its version. Either way, RustDesk then stops using its
    public ID and relay servers.
 3. **The firewall:** RustDesk's Allow rules are limited to the Tailscale adapter.
 4. **RustDesk's settings:** the same as the manual table, except the password and two-factor. Direct IP access
@@ -307,6 +312,7 @@ Host checks
   PASS  Tailscale is signed in
   PASS  Network adapter 'Tailscale' exists
   PASS  RustDesk is installed
+  PASS  RustDesk is signed by its publisher (PURSLANE)
   PASS  RustDesk service is running
   PASS  Whitelist is not empty while direct IP access is on
   PASS  Whitelist entry '100.64.0.11' is one Tailscale address
@@ -365,6 +371,9 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 | "Unable to connect to the remote server" or "rate limit exceeded" | The script couldn't reach GitHub to download RustDesk. Nothing was installed. | Check the internet connection and try again later. |
 | "RustDesk is not installed." | RustDesk isn't in Program Files after the install step. | Install it with the [manual path](#2-rustdesk), choosing **Install**, then run the script again. |
 | "winget couldn't install Tailscale" | winget failed to install the pinned version. | Install Tailscale from [tailscale.com/download](https://tailscale.com/download), then run the script again. |
+| "winget finished, but tailscale.exe isn't in Program Files" | winget reported success, but Tailscale isn't where the script looks. | Restart the PC and run the script again. |
+| "The installed tailscale.exe isn't validly signed by Tailscale" | The Tailscale that winget installed doesn't carry Tailscale's valid signature. | Uninstall Tailscale (Settings, Apps), then run the script again. If it keeps happening, [open an issue](https://github.com/stunnas/tailnet-desk/issues). |
+| "The download isn't validly signed by RustDesk's publisher" | The file from GitHub doesn't carry RustDesk's valid signature. Nothing was installed. | Don't install RustDesk by hand from that download. Try again later, and if it keeps happening, [open an issue](https://github.com/stunnas/tailnet-desk/issues). |
 | "The RustDesk installer failed" | RustDesk's installer stopped with an error. | Restart the PC and run the script again. If it fails again, use the [manual path](#2-rustdesk). |
 | "Release ... has no file named ..." or "... isn't on github.com/rustdesk/rustdesk" or "GitHub's SHA-256 ... differs" | GitHub's release doesn't match what this repo pins. Nothing was downloaded. | Don't install by hand from that release. [Open an issue](https://github.com/stunnas/tailnet-desk/issues). |
 | "Couldn't restrict the permissions" or "... wasn't empty after it was created" | The private download folder couldn't be made safe. Nothing was installed. | Delete the `tailnet-desk` folder in the ProgramData folder (usually `C:\ProgramData`) and run the script again. |
@@ -381,6 +390,7 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 | Tailscale is signed in | Click the Tailscale icon by the clock and choose **Log in**. |
 | Network adapter 'Tailscale' exists | Reinstall Tailscale. If `Get-NetAdapter` shows it under another name, use that name in the manual firewall commands. |
 | RustDesk is installed / RustDesk service is running | Reinstall RustDesk ([manual step 2](#2-rustdesk)), choosing **Install**. A stopped service: restart the PC. |
+| RustDesk is signed by its publisher (PURSLANE) | The installed `rustdesk.exe` doesn't carry RustDesk's valid signature. Uninstall RustDesk and reinstall it from [github.com/rustdesk/rustdesk](https://github.com/rustdesk/rustdesk/releases) ([manual step 2](#2-rustdesk)). |
 | Given controller address ... / Whitelist entry ... is one Tailscale address | Replace it with the controller's single `100.x` address, no ranges: run `install-host.ps1 -ControllerIp` with it, or edit the whitelist in RustDesk. This fails even while direct IP access is off, so turning it on later can't bring the entry back. |
 | Whitelist doesn't include this PC's own address | Remove the host's own `100.x` address from the whitelist: only controllers belong there. |
 | Whitelist is not empty while direct IP access is on | Add the controller's address to the whitelist, or turn off direct IP access. |
