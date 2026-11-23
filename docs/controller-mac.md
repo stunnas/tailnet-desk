@@ -68,8 +68,9 @@ Security → **Input Monitoring**.
 1. Make sure Tailscale shows **Connected** on both computers.
 2. In RustDesk's **Control Remote Desktop** box, type the **host's** `100.x` address and click **Connect**.
 3. Enter the host's permanent password, then the 6-digit code from your authenticator app. **Leave "Remember
-   password" unticked**, and don't tick any option to trust this device for two-factor: otherwise anyone who gets
-   hold of this Mac unlocked can open the host without knowing either.
+   password" unticked**: otherwise anyone who gets hold of this Mac unlocked can open the host without knowing it.
+   Ticking "trust this device" (if the host allows it) skips the code here for a while; only do that on a Mac that
+   stays locked, because whoever unlocks it then needs only the password.
 4. The host's screen appears. With two monitors, the monitor buttons in the toolbar switch between them. If the
    picture lags, open the display menu in the toolbar and set the frame rate to **30**.
 

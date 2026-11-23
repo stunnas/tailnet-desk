@@ -9,9 +9,11 @@
 #
 # Threat model, as on Windows: the scripts trust the signed-in account and everything running as it. They are run from
 # the user's Downloads folder, so a program running as the user could change them anyway. The hardening below protects
-# against mistakes and odd setups: programs come from fixed paths, never from PATH, and the downloaded Tailscale
-# installer and RustDesk disk image are checked by SHA-256 and by their Apple-issued signing certificates before anything
-# in them runs.
+# against mistakes and odd setups: everything run with sudo, and every tool that decides a check (curl, shasum,
+# codesign, pkgutil, hdiutil), comes from a fixed path; ordinary text tools (awk, sed, grep and so on) come from PATH,
+# which belongs to the trusted account. The downloaded Tailscale installer and RustDesk disk image are checked by
+# SHA-256 and by their Apple-issued signing certificates before anything in them runs, and RustDesk is only run with
+# sudo once the copy in Applications passes its signature check.
 
 # --- Settings ------------------------------------------------------------------------------------------------
 # Versions are pinned and bumped by hand after testing. The RustDesk version must match scripts/windows/tailnet-desk.psm1
@@ -379,14 +381,24 @@ td_rustdesk_requirement() {
   td_team_requirement "$TD_RUSTDESK_TEAM"
 }
 
-# True when an app or disk image ($1) has a valid signature from a certificate Apple issued to RustDesk's team.
-td_signed_by_rustdesk() {
-  /usr/bin/codesign --verify --strict -R="$(td_rustdesk_requirement)" "$1" > /dev/null 2>&1
+# True when an app or disk image ($2) has a valid signature from a certificate Apple issued to team $1.
+td_signed_by_team() {
+  /usr/bin/codesign --verify --strict -R="$(td_team_requirement "$1")" "$2" > /dev/null 2>&1
 }
 
-# True when an app ($1) has a valid signature from a certificate Apple issued to Tailscale's team.
-td_signed_by_tailscale() {
-  /usr/bin/codesign --verify --strict -R="$(td_team_requirement "$TD_TAILSCALE_TEAM")" "$1" > /dev/null 2>&1
+td_signed_by_rustdesk() { td_signed_by_team "$TD_RUSTDESK_TEAM" "$1"; }
+td_signed_by_tailscale() { td_signed_by_team "$TD_TAILSCALE_TEAM" "$1"; }
+
+# RustDesk's program, for running with sudo: only when RustDesk in Applications passes its signature check, so a
+# look-alike RustDesk installed from elsewhere is never run as root.
+td_rustdesk_trusted_exe() {
+  local exe
+  exe=$(td_rustdesk_exe) || { echo 'RustDesk is not installed.' >&2; return 1; }
+  if ! td_signed_by_rustdesk "$TD_RUSTDESK_APP"; then
+    echo "RustDesk in Applications isn't signed by RustDesk's Apple team, so it isn't run. Delete it and run install-host.sh again." >&2
+    return 1
+  fi
+  echo "$exe"
 }
 
 # True when RustDesk's startup items are installed, so its server starts at every boot, even before anyone logs in.
@@ -400,10 +412,18 @@ td_rustdesk_server_running() {
 }
 
 # Reads RustDesk settings ($@ are keys) through its command line, as "key=value" lines. RustDesk only answers an
-# administrator, so this runs it with sudo; -H gives it root's own home. Fails when RustDesk refuses.
+# administrator, so this runs it with sudo; -H gives it root's own home. Fails when RustDesk refuses, or when RustDesk
+# in Applications isn't RustDesk's own.
 td_rustdesk_get() {
-  local exe key out
-  exe=$(td_rustdesk_exe) || { echo 'RustDesk is not installed.' >&2; return 1; }
+  local exe
+  exe=$(td_rustdesk_trusted_exe) || return 1
+  td_rustdesk_read "$exe" "$@"
+}
+
+# td_rustdesk_get with the already checked program as $1.
+td_rustdesk_read() {
+  local exe=$1 key out
+  shift
   for key in "$@"; do
     out=$(/usr/bin/sudo -H "$exe" --option "$key" 2> /dev/null | tr -d '\r') ||
       { echo "RustDesk couldn't read the setting $key." >&2; return 1; }
@@ -431,12 +451,12 @@ td_pf_installed() {
 # Changes: RustDesk's settings.
 td_rustdesk_set() {
   local exe pair key value now
-  exe=$(td_rustdesk_exe) || { echo 'RustDesk is not installed.' >&2; return 1; }
+  exe=$(td_rustdesk_trusted_exe) || return 1
   for pair in "$@"; do
     key=${pair%%=*}; value=${pair#*=}
     local said
     said=$(/usr/bin/sudo -H "$exe" --option "$key" "$value" 2>&1 | tr -d '\r' | head -n 3 || true)
-    now=$(td_rustdesk_get "$key") || return 1
+    now=$(td_rustdesk_read "$exe" "$key") || return 1
     now=${now#*=}
     if ! td_option_matches "$key" "$value" "$now"; then
       echo "RustDesk didn't take the setting $key (wanted '$value', reads '$now'). Is RustDesk open and its service installed?" >&2
@@ -446,25 +466,34 @@ td_rustdesk_set() {
   done
 }
 
+# Downloads $1 (an https address) to $2 with curl and checks the file's SHA-256 against $3. Prints why and returns
+# non-zero when it can't download or the hash differs; the caller removes the file's folder either way.
+td_download_verified() {
+  local actual
+  if ! /usr/bin/curl -fsSL --proto '=https' --retry 3 -o "$2" "$1"; then
+    echo "Couldn't download ${1##*/}. Check the internet connection and try again." >&2; return 1
+  fi
+  actual=$(/usr/bin/shasum -a 256 "$2" | awk '{ print $1 }')
+  if [ "$actual" != "$3" ]; then
+    echo "The download's SHA-256 doesn't match the pinned one. Nothing was installed." >&2; return 1
+  fi
+  echo 'SHA-256 matches the pinned value.'
+}
+
 # Downloads the pinned Tailscale Standalone installer from Tailscale's package server into a new private folder, checks
 # its SHA-256 and that Tailscale's Apple team signed it and Apple notarized it, installs it, checks the installed app's
 # signature, and opens Tailscale so it can ask for its network extension. Does nothing when Tailscale (Standalone or App
 # Store) is already installed. Changes: installs a program.
 td_install_tailscale() {
   if td_tailscale_cli > /dev/null; then echo 'Tailscale is already installed.'; return 0; fi
-  local name tmp pkg actual sig
+  local name tmp pkg sig
   name=$(td_tailscale_pkg_name)
   tmp=$(/usr/bin/mktemp -d) || return 1        # mktemp -d makes a folder only this user can open
   pkg="$tmp/$name"
   echo "Downloading Tailscale $TD_TAILSCALE_VERSION from pkgs.tailscale.com ..."
-  if ! /usr/bin/curl -fsSL --proto '=https' --retry 3 -o "$pkg" "$TD_TAILSCALE_PKG_BASE/$name"; then
-    rm -rf "$tmp"; echo "Couldn't download $name. Check the internet connection and try again." >&2; return 1
+  if ! td_download_verified "$TD_TAILSCALE_PKG_BASE/$name" "$pkg" "$TD_TAILSCALE_PKG_SHA256"; then
+    rm -rf "$tmp"; return 1
   fi
-  actual=$(/usr/bin/shasum -a 256 "$pkg" | awk '{ print $1 }')
-  if [ "$actual" != "$TD_TAILSCALE_PKG_SHA256" ]; then
-    rm -rf "$tmp"; echo "The download's SHA-256 doesn't match the pinned one. Nothing was installed." >&2; return 1
-  fi
-  echo 'SHA-256 matches the pinned value.'
   sig=$(/usr/sbin/pkgutil --check-signature "$pkg" 2>&1) || sig=''
   if ! printf '%s\n' "$sig" | td_pkg_signed_by_team "$TD_TAILSCALE_TEAM"; then
     rm -rf "$tmp"
@@ -480,34 +509,35 @@ td_install_tailscale() {
     echo "Tailscale in Applications isn't signed by Tailscale's Apple team after installing. Delete it and run again." >&2
     return 1
   fi
+  # Tailscale's installer usually opens it already. If this fails too, the caller's next step says to open it by hand.
   /usr/bin/open "$TD_TAILSCALE_APP" || true
 }
 
 # Downloads the pinned RustDesk disk image from its official GitHub release into a new private folder, checks its
-# SHA-256 and its Apple signing team, then copies the app into /Applications. Does nothing when RustDesk is already
-# installed. Changes: installs a program.
+# SHA-256 and its Apple signing team, then copies the app into /Applications. When RustDesk is already installed, only
+# checks that it's RustDesk's own. Changes: installs a program.
 td_install_rustdesk() {
-  if td_rustdesk_exe > /dev/null; then echo 'RustDesk is already installed.'; return 0; fi
-  local asset name sha tmp dmg mnt actual
+  if td_rustdesk_exe > /dev/null; then
+    if ! td_signed_by_rustdesk "$TD_RUSTDESK_APP"; then
+      echo "RustDesk in Applications isn't signed by RustDesk's Apple team. Delete it and run this script again: it then installs RustDesk's own." >&2
+      return 1
+    fi
+    echo 'RustDesk is already installed.'; return 0
+  fi
+  local asset name sha tmp dmg mnt
   asset=$(td_rustdesk_asset "$(/usr/bin/uname -m)") || return 1
   name=$(echo "$asset" | sed -n 1p); sha=$(echo "$asset" | sed -n 2p)
   tmp=$(/usr/bin/mktemp -d) || return 1        # mktemp -d makes a folder only this user can open
   dmg="$tmp/$name"; mnt="$tmp/mount"
   echo "Downloading RustDesk $TD_RUSTDESK_VERSION from github.com/$TD_RUSTDESK_REPO ..."
-  if ! /usr/bin/curl -fsSL --proto '=https' --retry 3 -o "$dmg" \
-      "https://github.com/$TD_RUSTDESK_REPO/releases/download/$TD_RUSTDESK_VERSION/$name"; then
-    rm -rf "$tmp"; echo "Couldn't download $name. Check the internet connection and try again." >&2; return 1
+  if ! td_download_verified "https://github.com/$TD_RUSTDESK_REPO/releases/download/$TD_RUSTDESK_VERSION/$name" \
+      "$dmg" "$sha"; then
+    rm -rf "$tmp"; return 1
   fi
-  actual=$(/usr/bin/shasum -a 256 "$dmg" | awk '{ print $1 }')
-  if [ "$actual" != "$sha" ]; then
-    rm -rf "$tmp"; echo "The download's SHA-256 doesn't match the pinned one. Nothing was installed." >&2; return 1
-  fi
-  echo 'SHA-256 matches the pinned value.'
   if ! td_signed_by_rustdesk "$dmg"; then
     rm -rf "$tmp"; echo "The disk image isn't signed by RustDesk's Apple team. Nothing was installed." >&2; return 1
   fi
-  mkdir "$mnt"
-  if ! /usr/bin/hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" "$dmg" > /dev/null; then
+  if ! mkdir "$mnt" || ! /usr/bin/hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" "$dmg" > /dev/null; then
     rm -rf "$tmp"; echo "Couldn't open the disk image." >&2; return 1
   fi
   if ! td_signed_by_rustdesk "$mnt/RustDesk.app"; then
@@ -515,7 +545,10 @@ td_install_rustdesk() {
     echo "The app in the disk image isn't signed by RustDesk's Apple team. Nothing was installed." >&2; return 1
   fi
   echo 'Copying RustDesk to Applications (your Mac password may be asked) ...'
-  /usr/bin/sudo /usr/bin/ditto "$mnt/RustDesk.app" "$TD_RUSTDESK_APP"
+  if ! /usr/bin/sudo /usr/bin/ditto "$mnt/RustDesk.app" "$TD_RUSTDESK_APP"; then
+    /usr/bin/hdiutil detach -quiet "$mnt" || true; rm -rf "$tmp"
+    echo "Couldn't copy RustDesk to Applications." >&2; return 1
+  fi
   /usr/bin/hdiutil detach -quiet "$mnt" || true
   rm -rf "$tmp"
   if ! td_signed_by_rustdesk "$TD_RUSTDESK_APP"; then
@@ -533,10 +566,14 @@ td_pf_enable() {
   td_pf_rules > "$tmp/pf.rules"
   td_pf_loader > "$tmp/load-pf.sh"
   td_pf_plist > "$tmp/plist"
-  /usr/bin/sudo /bin/mkdir -p "$TD_PF_DIR"
-  /usr/bin/sudo /usr/bin/install -o root -g wheel -m 644 "$tmp/pf.rules" "$TD_PF_DIR/pf.rules"
-  /usr/bin/sudo /usr/bin/install -o root -g wheel -m 755 "$tmp/load-pf.sh" "$TD_PF_DIR/load-pf.sh"
-  /usr/bin/sudo /usr/bin/install -o root -g wheel -m 644 "$tmp/plist" "$TD_PF_PLIST"
+  # The startup item runs load-pf.sh from this folder as root, so it must belong to root whoever made it first.
+  if ! { /usr/bin/sudo /bin/mkdir -p "$TD_PF_DIR" &&
+      /usr/bin/sudo /usr/sbin/chown root:wheel "$TD_PF_DIR" && /usr/bin/sudo /bin/chmod 755 "$TD_PF_DIR" &&
+      /usr/bin/sudo /usr/bin/install -o root -g wheel -m 644 "$tmp/pf.rules" "$TD_PF_DIR/pf.rules" &&
+      /usr/bin/sudo /usr/bin/install -o root -g wheel -m 755 "$tmp/load-pf.sh" "$TD_PF_DIR/load-pf.sh" &&
+      /usr/bin/sudo /usr/bin/install -o root -g wheel -m 644 "$tmp/plist" "$TD_PF_PLIST"; }; then
+    rm -rf "$tmp"; echo "Couldn't install the firewall step's files." >&2; return 1
+  fi
   rm -rf "$tmp"
   /usr/bin/sudo /bin/launchctl bootout system "$TD_PF_PLIST" 2> /dev/null || true
   /usr/bin/sudo /bin/launchctl bootstrap system "$TD_PF_PLIST"

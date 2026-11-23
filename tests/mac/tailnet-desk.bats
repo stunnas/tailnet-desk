@@ -437,6 +437,10 @@ pkgutil_output() {
   pkgutil_output > "$BATS_TEST_TMPDIR/sig"
   td_sh "td_pkg_signed_by_team W5364U7YZB < '$BATS_TEST_TMPDIR/sig'"
   [ "$status" -eq 0 ]
+  # Trailing spaces after the certificate name don't matter.
+  pkgutil_output '' '' 'Developer ID Installer: Tailscale Inc. (W5364U7YZB)   ' > "$BATS_TEST_TMPDIR/spaces"
+  td_sh "td_pkg_signed_by_team W5364U7YZB < '$BATS_TEST_TMPDIR/spaces'"
+  [ "$status" -eq 0 ]
 }
 
 @test "td_pkg_signed_by_team refuses another team, no notarization, an untrusted signature and no output" {
@@ -466,6 +470,148 @@ pkgutil_output() {
   printf 'not signed\n' > "$BATS_TEST_TMPDIR/file"
   td td_signed_by_tailscale "$BATS_TEST_TMPDIR/file"
   [ "$status" -ne 0 ]
+}
+
+# Stand-ins for the programs the installers run by fixed path. Each logs "name args" to $STUB_LOG. curl writes
+# $CURL_BODY to its -o file (or fails when CURL_FAIL is set), pkgutil prints $PKGUTIL_OUT, codesign exits with
+# $CODESIGN_EXIT (0 unless set), mktemp makes its folder under $T/tmp, and sudo, open and hdiutil only log (hdiutil attach makes the mount folder hold a
+# RustDesk.app). The real shasum hashes the download, so a test sets $WANT_SHA to the hash it wants pinned.
+make_stubs() {
+  B="$BATS_TEST_TMPDIR/bin"; T="$BATS_TEST_TMPDIR/sys"; mkdir -p "$B" "$T/tmp"
+  for tool in sudo open; do
+    printf '#!/bin/bash\nprintf "%%s %%s\\n" %s "$*" >> "$STUB_LOG"\n' "$tool" > "$B/$tool"
+  done
+  cat > "$B/curl" << 'STUB'
+#!/bin/bash
+printf 'curl %s\n' "$*" >> "$STUB_LOG"
+[ -z "${CURL_FAIL-}" ] || exit 22
+while [ "$#" -gt 0 ]; do [ "$1" = -o ] && { printf '%s' "$CURL_BODY" > "$2"; exit 0; }; shift; done
+STUB
+  cat > "$B/pkgutil" << 'STUB'
+#!/bin/bash
+printf 'pkgutil %s\n' "$*" >> "$STUB_LOG"
+printf '%s\n' "${PKGUTIL_OUT-}"
+STUB
+  cat > "$B/codesign" << 'STUB'
+#!/bin/bash
+printf 'codesign %s\n' "$*" >> "$STUB_LOG"
+exit "${CODESIGN_EXIT:-0}"
+STUB
+  # macOS's mktemp ignores TMPDIR, so this one makes the private download folder under $T/tmp, where a test can look.
+  printf '#!/bin/bash\nexec /usr/bin/mktemp -d "$T/tmp/dl.XXXXXX"\n' > "$B/mktemp"
+  cat > "$B/hdiutil" << 'STUB'
+#!/bin/bash
+printf 'hdiutil %s\n' "$*" >> "$STUB_LOG"
+if [ "$1" = attach ]; then while [ "$#" -gt 1 ]; do [ "$1" = -mountpoint ] && mkdir -p "$2/RustDesk.app"; shift; done; fi
+exit 0
+STUB
+  chmod +x "$B"/*
+  export B T STUB_LOG="$BATS_TEST_TMPDIR/stub.log" LIB TMPDIR="$T/tmp" CURL_BODY='installer bytes'
+  : > "$STUB_LOG"
+}
+
+# Runs installer function $1 from the library with its fixed-path programs pointed at the stand-ins, and Tailscale and
+# RustDesk "installed" under $T instead of /Applications.
+run_installer() {
+  run /bin/bash -c '
+    set -euo pipefail
+    . "$LIB"
+    TD_TAILSCALE_APP="$T/Tailscale.app"; TD_RUSTDESK_APP="$T/RustDesk.app"
+    if [ -n "${WANT_SHA-}" ]; then
+      TD_TAILSCALE_PKG_SHA256=$WANT_SHA; TD_RUSTDESK_SHA256_ARM64=$WANT_SHA; TD_RUSTDESK_SHA256_X86_64=$WANT_SHA
+    fi
+    eval "$(declare -f | sed -e "s#/usr/bin/curl#$B/curl#g" -e "s#/usr/sbin/pkgutil#$B/pkgutil#g" \
+      -e "s#/usr/bin/sudo#$B/sudo#g" -e "s#/usr/bin/open#$B/open#g" -e "s#/usr/bin/codesign#$B/codesign#g" \
+      -e "s#/usr/bin/hdiutil#$B/hdiutil#g" -e "s#/usr/bin/mktemp#$B/mktemp#g")"
+    "$1"
+  ' run_installer "$1"
+}
+
+good_sha() { printf '%s' "$CURL_BODY" | /usr/bin/shasum -a 256 | awk '{ print $1 }'; }
+
+@test "td_install_tailscale installs nothing, runs nothing with sudo and leaves no download when the hash differs" {
+  make_stubs
+  export WANT_SHA=$(printf 'x%.0s' {1..64})
+  run_installer td_install_tailscale
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"doesn't match the pinned one"* ]] || false
+  ! grep -q '^sudo' "$STUB_LOG"
+  ! grep -q '^pkgutil' "$STUB_LOG"
+  [ -z "$(ls -A "$T/tmp")" ]
+}
+
+@test "td_install_tailscale installs nothing when the installer isn't signed and notarized for Tailscale's team" {
+  make_stubs
+  export WANT_SHA=$(good_sha)
+  export PKGUTIL_OUT="$(pkgutil_output '' '' 'Developer ID Installer: Someone Else (ABCDE12345)')"
+  run_installer td_install_tailscale
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"isn't signed by Tailscale's Apple team and notarized"* ]] || false
+  ! grep -q '^sudo' "$STUB_LOG"
+  [ -z "$(ls -A "$T/tmp")" ]
+}
+
+@test "td_install_tailscale installs a checked installer with macOS's installer, then checks the app and cleans up" {
+  make_stubs
+  export WANT_SHA=$(good_sha) PKGUTIL_OUT="$(pkgutil_output)"
+  run_installer td_install_tailscale
+  [ "$status" -eq 0 ]
+  grep -q "^sudo /usr/sbin/installer -pkg .*/Tailscale-1.104.4-macos.pkg -target /" "$STUB_LOG"
+  grep -q "^codesign .*W5364U7YZB.* $T/Tailscale.app" "$STUB_LOG"
+  [ -z "$(ls -A "$T/tmp")" ]
+}
+
+@test "td_install_tailscale stops when the installed app fails its signature check" {
+  make_stubs
+  export WANT_SHA=$(good_sha) PKGUTIL_OUT="$(pkgutil_output)" CODESIGN_EXIT=1
+  run_installer td_install_tailscale
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"isn't signed by Tailscale's Apple team after installing"* ]] || false
+}
+
+@test "td_install_rustdesk copies nothing and leaves no download when the hash or the disk image's signature fails" {
+  make_stubs
+  export WANT_SHA=$(printf 'x%.0s' {1..64})
+  run_installer td_install_rustdesk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"doesn't match the pinned one"* ]] || false
+  ! grep -q '^sudo\|^hdiutil' "$STUB_LOG"
+  [ -z "$(ls -A "$T/tmp")" ]
+  : > "$STUB_LOG"
+  export WANT_SHA=$(good_sha) CODESIGN_EXIT=1
+  run_installer td_install_rustdesk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"disk image isn't signed by RustDesk's Apple team"* ]] || false
+  ! grep -q '^sudo\|^hdiutil' "$STUB_LOG"
+  [ -z "$(ls -A "$T/tmp")" ]
+}
+
+@test "td_install_rustdesk refuses an installed RustDesk that isn't RustDesk's own, and downloads nothing" {
+  make_stubs
+  mkdir -p "$T/RustDesk.app/Contents/MacOS"
+  printf '#!/bin/bash\n' > "$T/RustDesk.app/Contents/MacOS/RustDesk"; chmod +x "$T/RustDesk.app/Contents/MacOS/RustDesk"
+  export CODESIGN_EXIT=1
+  run_installer td_install_rustdesk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"isn't signed by RustDesk's Apple team. Delete it"* ]] || false
+  ! grep -q '^curl' "$STUB_LOG"
+}
+
+@test "td_rustdesk_get and td_rustdesk_set never run a RustDesk that fails its signature check with sudo" {
+  make_stubs
+  mkdir -p "$T/RustDesk.app/Contents/MacOS"
+  printf '#!/bin/bash\n' > "$T/RustDesk.app/Contents/MacOS/RustDesk"; chmod +x "$T/RustDesk.app/Contents/MacOS/RustDesk"
+  export CODESIGN_EXIT=1
+  for f in 'td_rustdesk_get whitelist' 'td_rustdesk_set whitelist=100.64.0.11'; do
+    run /bin/bash -c '
+      set -euo pipefail
+      . "$LIB"; TD_RUSTDESK_APP="$T/RustDesk.app"
+      eval "$(declare -f | sed -e "s#/usr/bin/sudo#$B/sudo#g" -e "s#/usr/bin/codesign#$B/codesign#g")"
+      $1' x "$f"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"isn't signed by RustDesk's Apple team, so it isn't run"* ]] || false
+  done
+  ! grep -q '^sudo' "$STUB_LOG"
 }
 
 @test "test-from-controller.sh refuses bad addresses before testing anything" {

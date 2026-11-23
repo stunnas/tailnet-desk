@@ -41,8 +41,9 @@ There's nothing to lock down: the iPhone app can only control other computers, n
 2. In RustDesk, type the **host's** `100.x` address into the **Remote ID** box (just the address, no port) and tap
    the arrow.
 3. Enter the host's permanent password, then the 6-digit code from your authenticator app. **Leave "Remember
-   password" off**, and don't choose to trust this device for two-factor: otherwise anyone who gets hold of your
-   unlocked iPhone can open the host without knowing either.
+   password" off**: otherwise anyone who gets hold of your unlocked iPhone can open the host without knowing it.
+   Trusting this device (if the host allows it) skips the code here for a while; only do that if your iPhone has a
+   passcode and locks itself, because whoever unlocks it then needs only the password.
 4. The host's screen appears. Drag to move the pointer and tap to click; the keyboard icon opens the keyboard.
 
 Useful settings in a session:

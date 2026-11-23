@@ -100,6 +100,7 @@ password). Menu names may differ slightly between versions.
 |---|---|---|---|
 | Security | Password | **Use permanent password**, then **Set permanent password** | Generate a random password of 20 or more characters in your password manager, save it there, and paste it in. Never reuse it, not even on another of your computers: one leak would then open both. It lets you connect when nobody is at the host. |
 | Security | Two-factor authentication | **On** | A QR code appears. In your authenticator app, tap **+**, scan it, and name the entry after this Mac. A stolen password alone is then useless. Don't photograph or share the QR code: it's the secret that makes the codes. A controller that was trusted for two-factor skips the code from then on: remove it under **Manage trusted devices** in the same section. |
+| Security | Enable trusted devices | Your choice | With it on, a controller can tick "trust this device" when it connects, and then skips the 6-digit code for the trust duration (90 days unless you change it). That's convenient on a controller that stays locked, but whoever unlocks it then needs only the password. With it off, every connection asks for the code. |
 | Security | Accept sessions | **via password** | A session starts on the password and code alone. Nobody has to be at the host to click Accept. |
 | Security | Deny LAN discovery | **On** (ticked) | The Mac stops announcing itself to other RustDesk apps on your home network. |
 | Security | Enable direct IP access | **On**, port **21118** | The controller connects straight to the host's Tailscale address, not through RustDesk's public servers. |
@@ -121,13 +122,9 @@ Then [check the host](#check-the-host) and go to the controller to connect.
 
 ## Script path (partly tested on a real Mac)
 
-> **Partly tested.** The shared library's checks that don't touch the system are tested automatically on macOS's own
-> shell. On a real Mac that was already a host, `install-host.sh` (with `--keep-sleep`), `test-host.sh`,
-> `enable-pf.sh` and `undo-pf.sh` ran and worked, including `enable-pf.sh` twice before the undo (only the undo's
-> token-file read changed after that run). The firewall check passed after a restart with an earlier version of the pf step; the current one's restart
-> handling is tested only against stand-ins so far. Not yet run: a fresh install on a Mac without RustDesk, the sleep
-> step, installing Tailscale, and the undo's path for a pf reference it can't release. For a fresh install, the manual
-> path above is the tested route. See the [README's Status](../README.md#status).
+> **Partly tested.** On a Mac that already had Tailscale and RustDesk, the scripts ran and passed. Installing
+> Tailscale and RustDesk with the script hasn't run on a real Mac yet, so for a fresh install the manual path above
+> is the tested route. See the [README's Status](../README.md#status) for exactly what has run.
 
 The script does the manual path's steps except the ones that need you: allowing Tailscale's network extension and
 signing in, turning off key expiry, allowing RustDesk's service and its two permissions, choosing the password and scanning the
@@ -185,11 +182,12 @@ Once the controller has joined Tailscale, find the **controller's** `100.x` addr
 This turns on direct IP access with only that address on RustDesk's whitelist. For more than one controller,
 separate the addresses with commas: `--controller-ip 100.64.0.11,100.64.0.12`.
 
-On a Mac that already has RustDesk, the output looks like this (with your addresses). It asks for your Mac password
+On a Mac that already has Tailscale and RustDesk, the output looks like this (with your addresses). It asks for your Mac password
 once:
 
 ```text
 == Step 1 of 6: Tailscale
+Tailscale is already installed.
 Tailscale is signed in. This Mac's (the host's) Tailscale address: 100.64.0.10
 
 == Step 2 of 6: RustDesk
@@ -229,8 +227,8 @@ and the old entries stay in RustDesk's whitelist, so the check at the end fails 
 
 RustDesk's direct port listens on every network the Mac joins: home Wi-Fi, a café, a hotel. The whitelist refuses
 everyone but your controllers, but they can still knock. This step makes the Mac's built-in packet filter (pf) drop
-connections to that port unless they come from an address in Tailscale's ranges, so on an ordinary network RustDesk
-can't be reached at all. It's a second lock next to the whitelist.
+connections to that port unless they come from an address in Tailscale's ranges, so on an ordinary network RustDesk's
+direct port can't be reached. It's a second lock next to the whitelist.
 
 One limit: the rule goes by address, not by network, because macOS can't name Tailscale's network in a lasting way.
 A few networks, those using carrier-grade NAT (some mobile hotspots and providers), hand out addresses from the same
@@ -348,7 +346,9 @@ tests that prove the setup works must run from the controller.
 | "macOS's installer couldn't install Tailscale" | The installer stopped, for example because the Mac password was wrong or macOS is older than Tailscale needs (macOS 11). | Run the script again. If it keeps happening, install Tailscale by hand ([manual step 1](#1-tailscale)). |
 | "Tailscale in Applications isn't signed by Tailscale's Apple team after installing" | The installed app doesn't pass the signature check. | Delete Tailscale from Applications and run the script again. |
 | "Couldn't open the disk image" | macOS couldn't mount the downloaded file. Nothing was installed. | Run the script again. If it keeps happening, install RustDesk by hand ([manual step 2](#2-rustdesk)). |
-| "RustDesk in Applications isn't signed by RustDesk's Apple team after copying" | The copy in Applications doesn't pass the signature check. | Delete RustDesk from Applications and run the script again. |
+| "RustDesk in Applications isn't signed by RustDesk's Apple team" (with "after copying", "Delete it", or "so it isn't run") | The RustDesk in Applications doesn't pass the signature check, so the script doesn't run it. | Delete RustDesk from Applications and run `install-host.sh` again: it installs RustDesk's own. |
+| "Couldn't copy RustDesk to Applications" | The copy failed, for example because the Mac password was wrong. Nothing was left behind. | Run the script again. |
+| "Couldn't install the firewall step's files" | `enable-pf.sh` couldn't put its files in place, for example because the Mac password was wrong. | Run `./enable-pf.sh` again. |
 | "--controller-ip needs an address" or "Unknown option" | The script was run with a mistyped option. | Run it with `--help` to see its options. |
 | "Unsupported Mac type" | The Mac is neither an Apple-chip nor an Intel Mac. | Use the manual path. |
 | "RustDesk's system service isn't installed or running yet" | RustDesk hasn't been opened, or its system service wasn't installed. | Do [manual step 2](#2-rustdesk), items 2 to 5, then run the script again. |
