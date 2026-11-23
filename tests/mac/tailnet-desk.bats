@@ -67,6 +67,7 @@ td_sh() {
   done
   # A Tailscale IPv6 entry already in the whitelist is dropped; the 100.x one is kept.
   td td_resolve_controllers '' '100.64.0.11,fd7a:115c:a1e0::1' # check-private-data: allow
+  [ "$status" -eq 0 ]
   [ "$output" = 100.64.0.11 ]
   td td_resolve_controllers '100.64.0.11,100.64.0.10' '' 100.64.0.10
   [ "$status" -eq 2 ]
