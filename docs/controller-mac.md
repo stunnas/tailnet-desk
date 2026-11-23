@@ -21,7 +21,7 @@ the Mac host guide's and the Windows controller guide's, and RustDesk's menu nam
 2. Click the Tailscale icon in the menu bar, choose **Log in**, and sign in with the **same account as the host**.
    Two accounts make two separate networks that can't see each other.
 3. Open the [Tailscale admin console](https://login.tailscale.com/admin/machines). Find **this Mac** and note its
-   address starting with `100.`. The host needs it for its whitelist.
+   address starting with `100.` (the short one, not the long `fd7a:` one; see the [glossary](glossary.md)). The host needs it for its whitelist.
 4. Check the two can see each other. Open Terminal (Command and Space, type `Terminal`, press Return) and run this
    with the **host's** address in place of the example:
 

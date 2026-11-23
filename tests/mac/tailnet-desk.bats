@@ -30,7 +30,7 @@ td_sh() {
 
 @test "td_is_tailscale_ipv4 accepts only 100.64.0.0/10" {
   for a in 100.64.0.0 100.64.0.10 100.127.255.255; do td td_is_tailscale_ipv4 "$a"; [ "$status" -eq 0 ]; done
-  for a in 100.63.255.255 100.128.0.0 192.168.0.10 100.64.0.0/10 0.0.0.0; do # check-private-data: allow
+  for a in 100.63.255.255 100.128.0.0 192.168.0.10 100.64.0.0/10 0.0.0.0 fd7a:115c:a1e0::1 '[fd7a:115c:a1e0::1]'; do # check-private-data: allow
     td td_is_tailscale_ipv4 "$a"; [ "$status" -ne 0 ]
   done
 }
@@ -60,9 +60,15 @@ td_sh() {
 }
 
 @test "td_resolve_controllers refuses a non-Tailscale address and this Mac's own" {
-  td td_resolve_controllers 192.168.0.10
-  [ "$status" -eq 2 ]
-  [[ "$output" == *"Not a Tailscale address"* ]] || false
+  for a in 192.168.0.10 fd7a:115c:a1e0::1; do # check-private-data: allow
+    td td_resolve_controllers "$a"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"Not a Tailscale address"* ]] || false
+  done
+  # A Tailscale IPv6 entry already in the whitelist is dropped; the 100.x one is kept.
+  td td_resolve_controllers '' '100.64.0.11,fd7a:115c:a1e0::1' # check-private-data: allow
+  [ "$status" -eq 0 ]
+  [ "$output" = 100.64.0.11 ]
   td td_resolve_controllers '100.64.0.11,100.64.0.10' '' 100.64.0.10
   [ "$status" -eq 2 ]
   [[ "$output" == *"this Mac's own address"* ]] || false

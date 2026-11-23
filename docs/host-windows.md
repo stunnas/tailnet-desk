@@ -62,7 +62,7 @@ Tailscale. So:
    days, and a host nobody sits at can't.
 
    ![The admin console's Machines page: clicking the ... menu at the end of the PC's row and choosing Disable key expiry, after which the row shows "Expiry disabled"](images/windows/tailscale-admin-key-expiry.gif)
-4. Note this PC's address starting with `100.` from the admin console: the controller connects to it.
+4. Note this PC's address starting with `100.` (the short one, not the long `fd7a:` one; see the [glossary](glossary.md)) from the admin console: the controller connects to it.
 
 ### 2. RustDesk
 
@@ -294,7 +294,7 @@ After that it lists the password and two-factor steps for you to do in RustDesk,
 again. Every line should say PASS. If one says FAIL, see [FAIL lines from test-host.ps1](#fail-lines-from-test-hostps1).
 
 Later runs without `-ControllerIp` keep the controller addresses already on the whitelist. They don't keep anything
-that isn't a single Tailscale address, such as a range or this PC's own address: the script names those entries.
+that isn't a single `100.x` Tailscale address, such as a range or this PC's own address: the script names those entries.
 If valid addresses are left, the whitelist is set to just those. If none are left, direct IP access is turned off
 and the old entries stay in RustDesk's whitelist, so the check at the end fails them. Run the script again with
 `-ControllerIp` and the controller's address to replace them.
