@@ -11,7 +11,7 @@
 #   --controller-ip  The Tailscale addresses that should be whitelisted. Leave it out to judge whatever the whitelist holds.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-# shellcheck source=scripts/mac/tailnet-desk.sh
+# shellcheck source=SCRIPTDIR/tailnet-desk.sh
 . "$here/tailnet-desk.sh"
 
 given=''

@@ -105,7 +105,8 @@ jobs:
           git checkout -q FETCH_HEAD
       - name: ShellCheck
         run: |
-          "$RUNNER_TEMP/shellcheck" -x -P scripts/mac tools/*.sh scripts/mac/*.sh
+          # Flags come from .shellcheckrc, which editors read too.
+          "$RUNNER_TEMP/shellcheck" tools/*.sh scripts/mac/*.sh
           # The pf step writes this loader onto the Mac and runs it as root at every boot, so it's linted too.
           bash -c '. scripts/mac/tailnet-desk.sh; td_pf_loader' > "$RUNNER_TEMP/load-pf.sh"
           "$RUNNER_TEMP/shellcheck" -s bash "$RUNNER_TEMP/load-pf.sh"
