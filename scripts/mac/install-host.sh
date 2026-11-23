@@ -5,7 +5,9 @@
 # password when a step needs it. It is safe to run again: each step skips what is already done, and a run without
 # --controller-ip keeps the controllers already whitelisted.
 #
-#   1. Checks Tailscale is installed and signed in (you install it by hand: see docs/host-mac.md).
+#   1. Installs Tailscale (pinned version) from Tailscale's own package server after checking the installer's SHA-256,
+#      its Apple signing team and Apple's notarization, if it isn't installed yet. Stops until you've allowed its
+#      network extension and signed in (you click those).
 #   2. Installs RustDesk (pinned version) from its official GitHub release after checking the disk image's SHA-256
 #      and its Apple signing team, if it isn't installed yet.
 #   3. Stops until RustDesk's background service and macOS permissions are in place (you click those).
@@ -44,15 +46,16 @@ step() { printf '\n== %s\n' "$1"; }
 td_resolve_controllers "$given" > /dev/null
 
 step 'Step 1 of 6: Tailscale'
-if ! td_tailscale_cli > /dev/null; then
-  echo 'Tailscale is not installed. Install the Standalone app from https://tailscale.com/download/mac,'
-  echo 'approve its network extension when macOS asks, sign in, and run this script again.'
-  exit 2
-fi
+td_install_tailscale
 my_ip=$(td_tailscale_ipv4)
 if [ -z "$my_ip" ]; then
-  echo 'Tailscale is installed but not signed in (or not running).'
-  echo 'Click the Tailscale icon in the menu bar, choose Log in, and sign in. Then run this script again.'
+  echo "Tailscale is installed but not signed in (or not running) yet. At this Mac:"
+  echo '  1. If Tailscale is not open, open it from Applications. When macOS asks to allow its network extension or'
+  echo '     VPN configuration, click Allow (or turn Tailscale on in System Settings > General > Login Items &'
+  echo '     Extensions > Network Extensions).'
+  echo '  2. Click the Tailscale icon in the menu bar, choose Log in, and sign in with the same account as your'
+  echo '     other devices.'
+  echo 'Then run this script again.'
   exit 2
 fi
 echo "Tailscale is signed in. This Mac's (the host's) Tailscale address: $my_ip"

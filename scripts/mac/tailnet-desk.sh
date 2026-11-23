@@ -9,8 +9,9 @@
 #
 # Threat model, as on Windows: the scripts trust the signed-in account and everything running as it. They are run from
 # the user's Downloads folder, so a program running as the user could change them anyway. The hardening below protects
-# against mistakes and odd setups: programs come from fixed paths, never from PATH, and the downloaded RustDesk disk
-# image is checked by SHA-256 and by its Apple-issued signing certificate before anything in it runs.
+# against mistakes and odd setups: programs come from fixed paths, never from PATH, and the downloaded Tailscale
+# installer and RustDesk disk image are checked by SHA-256 and by their Apple-issued signing certificates before anything
+# in them runs.
 
 # --- Settings ------------------------------------------------------------------------------------------------
 # Versions are pinned and bumped by hand after testing. The RustDesk version must match scripts/windows/tailnet-desk.psm1
@@ -29,6 +30,12 @@ TD_RUSTDESK_APP='/Applications/RustDesk.app'
 TD_RUSTDESK_AGENT='/Library/LaunchAgents/com.carriez.RustDesk_server.plist'
 TD_RUSTDESK_DAEMON='/Library/LaunchDaemons/com.carriez.RustDesk_service.plist'
 TD_TAILSCALE_APP='/Applications/Tailscale.app'
+# Tailscale's Standalone installer from its own package server. Released 2026-10-28: the same version the Windows
+# script installs with winget (tests/mac checks it). Bump together with the SHA-256; Tailscale updates itself afterwards.
+TD_TAILSCALE_VERSION='1.104.4'
+TD_TAILSCALE_PKG_SHA256='ee8800f6597acd040ab45f3fece21cb89fb691968a6a2e2a30d1f2f2707b41d2'
+TD_TAILSCALE_PKG_BASE='https://pkgs.tailscale.com/stable'
+TD_TAILSCALE_TEAM='W5364U7YZB'              # Apple Developer ID team that signs Tailscale's app and installer
 TD_TAILSCALE_V4='100.64.0.0/10'             # Tailscale's IPv4 range
 TD_TAILSCALE_V6='fd7a:115c:a1e0::/48'       # Tailscale's IPv6 range
 TD_PF_ANCHOR='com.apple/tailnet-desk'       # evaluated through Apple's own anchor "com.apple/*" in /etc/pf.conf
@@ -283,6 +290,29 @@ td_rustdesk_asset() {
   esac
 }
 
+# The file name of the pinned Tailscale Standalone installer.
+td_tailscale_pkg_name() {
+  printf 'Tailscale-%s-macos.pkg\n' "$TD_TAILSCALE_VERSION"
+}
+
+# The codesign requirement for an Apple Developer ID team ($1): a certificate Apple issued (anchor apple generic) to it.
+td_team_requirement() {
+  printf 'anchor apple generic and certificate leaf[subject.OU] = "%s"' "$1"
+}
+
+# True when pkgutil --check-signature's output (stdin) says the installer is signed with a certificate Apple issued,
+# notarized by Apple, and that its signing certificate is a Developer ID Installer certificate of team $1.
+td_pkg_signed_by_team() {
+  awk -v team="($1)" '
+    /^ *Status: signed by a developer certificate issued by Apple/ { status = 1 }
+    /^ *Notarization: trusted by the Apple notary service/ { notarized = 1 }
+    /^ *1\. Developer ID Installer: / {
+      line = $0; sub(/[ \t]+$/, "", line)
+      if (substr(line, length(line) - length(team) + 1) == team) leaf = 1
+    }
+    END { exit !(status && notarized && leaf) }'
+}
+
 # The token pfctl -E prints ("Token : 123"), read from stdin, or nothing.
 td_pf_token_from_output() {
   awk -F': *' '/^Token *:/ { gsub(/[^0-9]/, "", $2); print $2; exit }'
@@ -346,12 +376,17 @@ td_rustdesk_exe() {
 
 # The codesign requirement for RustDesk: a certificate Apple issued (anchor apple generic) to RustDesk's team.
 td_rustdesk_requirement() {
-  printf 'anchor apple generic and certificate leaf[subject.OU] = "%s"' "$TD_RUSTDESK_TEAM"
+  td_team_requirement "$TD_RUSTDESK_TEAM"
 }
 
 # True when an app or disk image ($1) has a valid signature from a certificate Apple issued to RustDesk's team.
 td_signed_by_rustdesk() {
   /usr/bin/codesign --verify --strict -R="$(td_rustdesk_requirement)" "$1" > /dev/null 2>&1
+}
+
+# True when an app ($1) has a valid signature from a certificate Apple issued to Tailscale's team.
+td_signed_by_tailscale() {
+  /usr/bin/codesign --verify --strict -R="$(td_team_requirement "$TD_TAILSCALE_TEAM")" "$1" > /dev/null 2>&1
 }
 
 # True when RustDesk's startup items are installed, so its server starts at every boot, even before anyone logs in.
@@ -409,6 +444,43 @@ td_rustdesk_set() {
       return 1
     fi
   done
+}
+
+# Downloads the pinned Tailscale Standalone installer from Tailscale's package server into a new private folder, checks
+# its SHA-256 and that Tailscale's Apple team signed it and Apple notarized it, installs it, checks the installed app's
+# signature, and opens Tailscale so it can ask for its network extension. Does nothing when Tailscale (Standalone or App
+# Store) is already installed. Changes: installs a program.
+td_install_tailscale() {
+  if td_tailscale_cli > /dev/null; then echo 'Tailscale is already installed.'; return 0; fi
+  local name tmp pkg actual sig
+  name=$(td_tailscale_pkg_name)
+  tmp=$(/usr/bin/mktemp -d) || return 1        # mktemp -d makes a folder only this user can open
+  pkg="$tmp/$name"
+  echo "Downloading Tailscale $TD_TAILSCALE_VERSION from pkgs.tailscale.com ..."
+  if ! /usr/bin/curl -fsSL --proto '=https' --retry 3 -o "$pkg" "$TD_TAILSCALE_PKG_BASE/$name"; then
+    rm -rf "$tmp"; echo "Couldn't download $name. Check the internet connection and try again." >&2; return 1
+  fi
+  actual=$(/usr/bin/shasum -a 256 "$pkg" | awk '{ print $1 }')
+  if [ "$actual" != "$TD_TAILSCALE_PKG_SHA256" ]; then
+    rm -rf "$tmp"; echo "The download's SHA-256 doesn't match the pinned one. Nothing was installed." >&2; return 1
+  fi
+  echo 'SHA-256 matches the pinned value.'
+  sig=$(/usr/sbin/pkgutil --check-signature "$pkg" 2>&1) || sig=''
+  if ! printf '%s\n' "$sig" | td_pkg_signed_by_team "$TD_TAILSCALE_TEAM"; then
+    rm -rf "$tmp"
+    echo "The installer isn't signed by Tailscale's Apple team and notarized by Apple. Nothing was installed." >&2
+    return 1
+  fi
+  echo 'Installing Tailscale (your Mac password may be asked) ...'
+  if ! /usr/bin/sudo /usr/sbin/installer -pkg "$pkg" -target / > /dev/null; then
+    rm -rf "$tmp"; echo "macOS's installer couldn't install Tailscale." >&2; return 1
+  fi
+  rm -rf "$tmp"
+  if ! td_signed_by_tailscale "$TD_TAILSCALE_APP"; then
+    echo "Tailscale in Applications isn't signed by Tailscale's Apple team after installing. Delete it and run again." >&2
+    return 1
+  fi
+  /usr/bin/open "$TD_TAILSCALE_APP" || true
 }
 
 # Downloads the pinned RustDesk disk image from its official GitHub release into a new private folder, checks its

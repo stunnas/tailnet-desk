@@ -58,7 +58,7 @@ controllers locked, and don't let RustDesk remember the host's password on them
 | [`test-host.ps1`](scripts/windows/test-host.ps1) | Windows host, as administrator | Checks the host's setup. Changes nothing. |
 | [`test-from-controller.ps1`](scripts/windows/test-from-controller.ps1) | Windows controller | Checks the host answers over Tailscale and not over the home network. Changes nothing. |
 | [`undo-host-firewall.ps1`](scripts/windows/undo-host-firewall.ps1) | Windows host, as administrator | Puts RustDesk's Allow rules back on every network adapter. Edge traversal stays Block. |
-| [`install-host.sh`](scripts/mac/install-host.sh) | Mac host, in Terminal | Installs RustDesk if it's missing, sets its security settings, stops sleep on the charger, then checks the result. Tailscale, RustDesk's service and its macOS permissions stay manual. Never sets or shows a password. |
+| [`install-host.sh`](scripts/mac/install-host.sh) | Mac host, in Terminal | Installs Tailscale and RustDesk if they're missing, sets RustDesk's security settings, stops sleep on the charger, then checks the result. Allowing Tailscale's network extension and signing in, RustDesk's service and its macOS permissions stay manual. Never sets or shows a password. |
 | [`test-host.sh`](scripts/mac/test-host.sh) | Mac host, in Terminal | Checks the host's setup. Changes nothing. |
 | [`test-from-controller.sh`](scripts/mac/test-from-controller.sh) | Mac controller, in Terminal | Checks a Windows or Mac host answers over Tailscale and not over the home network. Changes nothing. |
 | [`enable-pf.sh`](scripts/mac/enable-pf.sh) / [`undo-pf.sh`](scripts/mac/undo-pf.sh) | Mac host, in Terminal | Optional: lets RustDesk's port answer only to addresses in Tailscale's ranges (which a few carrier-grade NAT networks also use), also after a restart / undoes it. |
@@ -67,8 +67,9 @@ The scripts install pinned versions and check RustDesk's SHA-256 fingerprint bef
 are in `Setting` at the top of [`tailnet-desk.psm1`](scripts/windows/tailnet-desk.psm1): open it and read the lines
 `RustDeskVersion = '...'` (also used by the guides' manual path) and `TailscaleWinget = '...'` (used only by the
 script; the manual path installs Tailscale's current release, and Tailscale updates itself either way). On a Mac they
-are at the top of [`tailnet-desk.sh`](scripts/mac/tailnet-desk.sh), with RustDesk's Apple signing team, which the
-script checks too; Tailscale is installed by hand there. The RustDesk version is the same on both, and a test checks
+are at the top of [`tailnet-desk.sh`](scripts/mac/tailnet-desk.sh): `TD_RUSTDESK_VERSION`, and
+`TD_TAILSCALE_VERSION` with the Tailscale installer's SHA-256 (used only by the script, as on Windows), with each
+one's Apple signing team, which the script checks too. Both versions are the same on Windows and Mac, and tests check
 that. The Windows scripts are PowerShell, which every Windows PC has; the Mac scripts and the repo's checks are bash,
 and the Mac scripts run on the bash 3.2 every Mac has.
 

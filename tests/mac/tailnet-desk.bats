@@ -402,6 +402,72 @@ STUB
   [ "$mac" = "$win" ]
 }
 
+@test "the Mac and Windows scripts pin the same Tailscale version" {
+  mac=$(sed -n "s/^TD_TAILSCALE_VERSION='\(.*\)'.*/\1/p" "$LIB")
+  win=$(sed -n "s/^ *TailscaleWinget *= *'\([^']*\)'.*/\1/p" "$ROOT/scripts/windows/tailnet-desk.psm1")
+  [ -n "$mac" ]
+  [ "$mac" = "$win" ]
+}
+
+@test "td_tailscale_pkg_name names the pinned installer, and its SHA-256 is pinned" {
+  td td_tailscale_pkg_name
+  [ "$output" = Tailscale-1.104.4-macos.pkg ]
+  td_sh 'printf "%s" "$TD_TAILSCALE_PKG_SHA256"'
+  [[ "$output" =~ ^[0-9a-f]{64}$ ]] || false
+}
+
+@test "td_team_requirement asks for an Apple-issued certificate for Tailscale's team" {
+  td_sh 'td_team_requirement "$TD_TAILSCALE_TEAM"'
+  [ "$output" = 'anchor apple generic and certificate leaf[subject.OU] = "W5364U7YZB"' ]
+}
+
+# pkgutil --check-signature's output for Tailscale's installer, with the fingerprints left out.
+pkgutil_output() {
+  printf '%s\n' \
+    'Package "Tailscale-1.104.4-macos.pkg":' \
+    "   Status: ${1:-signed by a developer certificate issued by Apple for distribution}" \
+    "   Notarization: ${2:-trusted by the Apple notary service}" \
+    '   Certificate Chain:' \
+    "    1. ${3:-Developer ID Installer: Tailscale Inc. (W5364U7YZB)}" \
+    '    2. Developer ID Certification Authority' \
+    '    3. Apple Root CA'
+}
+
+@test "td_pkg_signed_by_team accepts a notarized installer signed by the team's Developer ID Installer certificate" {
+  pkgutil_output > "$BATS_TEST_TMPDIR/sig"
+  td_sh "td_pkg_signed_by_team W5364U7YZB < '$BATS_TEST_TMPDIR/sig'"
+  [ "$status" -eq 0 ]
+}
+
+@test "td_pkg_signed_by_team refuses another team, no notarization, an untrusted signature and no output" {
+  pkgutil_output '' '' 'Developer ID Installer: Someone Else (ABCDE12345)' > "$BATS_TEST_TMPDIR/other"
+  pkgutil_output '' '' 'Developer ID Installer: Fake (W5364U7YZB) Ltd (ABCDE12345)' > "$BATS_TEST_TMPDIR/inside"
+  pkgutil_output '' 'none' > "$BATS_TEST_TMPDIR/unnotarized"
+  pkgutil_output 'signed by untrusted certificate' > "$BATS_TEST_TMPDIR/untrusted"
+  pkgutil_output '' '' 'Developer ID Application: Tailscale Inc. (W5364U7YZB)' > "$BATS_TEST_TMPDIR/appcert"
+  : > "$BATS_TEST_TMPDIR/empty"
+  for f in other inside unnotarized untrusted appcert empty; do
+    td_sh "td_pkg_signed_by_team W5364U7YZB < '$BATS_TEST_TMPDIR/$f'"
+    [ "$status" -ne 0 ] || { echo "accepted: $f"; false; }
+  done
+  # The team named only further up the chain doesn't count either.
+  printf '%s\n' '   Status: signed by a developer certificate issued by Apple for distribution' \
+    '   Notarization: trusted by the Apple notary service' \
+    '    1. Developer ID Installer: Someone Else (ABCDE12345)' \
+    '    2. Developer ID Installer: Tailscale Inc. (W5364U7YZB)' > "$BATS_TEST_TMPDIR/second"
+  td_sh "td_pkg_signed_by_team W5364U7YZB < '$BATS_TEST_TMPDIR/second'"
+  [ "$status" -ne 0 ]
+}
+
+@test "td_signed_by_tailscale refuses something not signed by Tailscale's team" {
+  command -v codesign > /dev/null || skip 'codesign exists only on macOS'
+  td td_signed_by_tailscale /bin/ls
+  [ "$status" -ne 0 ]
+  printf 'not signed\n' > "$BATS_TEST_TMPDIR/file"
+  td td_signed_by_tailscale "$BATS_TEST_TMPDIR/file"
+  [ "$status" -ne 0 ]
+}
+
 @test "test-from-controller.sh refuses bad addresses before testing anything" {
   run /bin/bash "$ROOT/scripts/mac/test-from-controller.sh" --host-tailscale-ip 192.168.0.10
   [ "$status" -eq 2 ]

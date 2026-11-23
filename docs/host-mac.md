@@ -126,11 +126,11 @@ Then [check the host](#check-the-host) and go to the controller to connect.
 > `enable-pf.sh` and `undo-pf.sh` ran and worked, including `enable-pf.sh` twice before the undo (only the undo's
 > token-file read changed after that run). The firewall check passed after a restart with an earlier version of the pf step; the current one's restart
 > handling is tested only against stand-ins so far. Not yet run: a fresh install on a Mac without RustDesk, the sleep
-> step, and the undo's path for a pf reference it can't release. For a fresh install, the manual path above is the
-> tested route. See the [README's Status](../README.md#status).
+> step, installing Tailscale, and the undo's path for a pf reference it can't release. For a fresh install, the manual
+> path above is the tested route. See the [README's Status](../README.md#status).
 
-The script does the manual path's steps except the ones that need you: installing and signing in to Tailscale,
-turning off key expiry, allowing RustDesk's service and its two permissions, choosing the password and scanning the
+The script does the manual path's steps except the ones that need you: allowing Tailscale's network extension and
+signing in, turning off key expiry, allowing RustDesk's service and its two permissions, choosing the password and scanning the
 two-factor QR code. It's safe to run more than once: each run skips what's already done and keeps the controllers
 already on the whitelist.
 
@@ -153,8 +153,12 @@ script "can't be opened", run it as `bash ./install-host.sh` instead.
 
 What happens:
 
-1. **Tailscale** is checked. If it isn't installed or signed in, the script says so and stops: do manual step 1,
-   then run it again.
+1. **Tailscale** (the pinned version), if it isn't installed yet, is downloaded from Tailscale's own package server
+   into a new private folder. The script checks the installer's SHA-256 fingerprint against the one stored in the
+   script, that Tailscale's Apple developer team signed it and that Apple notarized it, and refuses anything else.
+   Then it installs it and opens Tailscale. An existing Tailscale, Standalone or App Store, is kept as it is. If
+   Tailscale isn't signed in yet, the script stops: allow its network extension when macOS asks, then log in (manual
+   step 1, items 2 and 3), and run it again.
 2. **RustDesk** (the pinned version), if it isn't installed yet, is downloaded from its official GitHub page into a
    new private folder. The script checks the disk image's SHA-256 fingerprint against the one stored in the script
    and that RustDesk's Apple developer team signed it, and refuses anything else. An existing RustDesk is kept as it
@@ -336,12 +340,13 @@ tests that prove the setup works must run from the controller.
 |---|---|---|
 | "can't be opened" or "Permission denied" | The script lost its run permission when it was downloaded. | Run it as `bash ./install-host.sh` (or `bash ./test-host.sh`, and so on). |
 | "Run this as yourself, not with sudo" | The script was started with `sudo`. | Run it without `sudo`; it asks for your password when needed. |
-| "Tailscale is not installed" | No Tailscale app in Applications. | Do [manual step 1](#1-tailscale), then run the script again. |
-| "Tailscale is installed but not signed in (or not running)" | Tailscale gave this Mac no address. | Click the Tailscale icon in the menu bar and choose **Log in**. Then run the script again. |
+| "Tailscale is installed but not signed in (or not running) yet" | Tailscale gave this Mac no address: its network extension isn't allowed yet, or nobody has logged in. | Allow the extension and log in ([manual step 1](#1-tailscale), items 2 and 3). Then run the script again. |
 | "Not a Tailscale address" | An address given to `--controller-ip` isn't a Tailscale address (`100.64.x.x` to `100.127.x.x`). | Copy the controller's address from the Tailscale admin console. |
 | "... is this Mac's own address" | You gave the host's address instead of the controller's. | Use the controller's `100.x` address. |
-| "Couldn't download ..." | The script couldn't reach GitHub. Nothing was installed. | Check the internet connection and try again later. |
-| "The download's SHA-256 doesn't match the pinned one", "The disk image isn't signed by RustDesk's Apple team" or "The app in the disk image isn't signed ..." | The file from GitHub isn't the one this repo was tested with. Nothing was installed. | Don't install RustDesk by hand from that download. Try again later, and if it keeps happening, [open an issue](https://github.com/stunnas/tailnet-desk/issues). |
+| "Couldn't download ..." | The script couldn't reach Tailscale's package server or GitHub. Nothing was installed. | Check the internet connection and try again later. |
+| "The download's SHA-256 doesn't match the pinned one", "The installer isn't signed by Tailscale's Apple team and notarized by Apple", "The disk image isn't signed by RustDesk's Apple team" or "The app in the disk image isn't signed ..." | The downloaded file isn't the one this repo was tested with. Nothing was installed. | Don't install it by hand from that download. Try again later, and if it keeps happening, [open an issue](https://github.com/stunnas/tailnet-desk/issues). |
+| "macOS's installer couldn't install Tailscale" | The installer stopped, for example because the Mac password was wrong or macOS is older than Tailscale needs (macOS 11). | Run the script again. If it keeps happening, install Tailscale by hand ([manual step 1](#1-tailscale)). |
+| "Tailscale in Applications isn't signed by Tailscale's Apple team after installing" | The installed app doesn't pass the signature check. | Delete Tailscale from Applications and run the script again. |
 | "Couldn't open the disk image" | macOS couldn't mount the downloaded file. Nothing was installed. | Run the script again. If it keeps happening, install RustDesk by hand ([manual step 2](#2-rustdesk)). |
 | "RustDesk in Applications isn't signed by RustDesk's Apple team after copying" | The copy in Applications doesn't pass the signature check. | Delete RustDesk from Applications and run the script again. |
 | "--controller-ip needs an address" or "Unknown option" | The script was run with a mistyped option. | Run it with `--help` to see its options. |
