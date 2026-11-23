@@ -52,7 +52,8 @@ Describe 'Test-TailscaleIPv4' {
     }
     # Boundary and malformed values below are made up. check-private-data: allow
     It 'rejects <_>' -ForEach @('100.63.255.255', '100.128.0.0', '192.168.0.10', '100.64.0.256', '100.64.0', # check-private-data: allow
-        '100.64.0.0/10', ' 100.64.0.10', '100.64.0.10 ', "100.64.0.10`n", '100.064.0.10', '', 'abc', '0.0.0.0') { # check-private-data: allow
+        '100.64.0.0/10', ' 100.64.0.10', '100.64.0.10 ', "100.64.0.10`n", '100.064.0.10', '', 'abc', '0.0.0.0', # check-private-data: allow
+        'fd7a:115c:a1e0::1', '[fd7a:115c:a1e0::1]') { # Tailscale's own IPv6 form: the guides use 100.x only. check-private-data: allow
         Test-TailscaleIPv4 -Address $_ | Should -BeFalse
     }
     It 'rejects non-ASCII digits, which .NET counts as digits' {
@@ -90,10 +91,13 @@ Describe 'Resolve-ControllerIp' {
     It 'keeps the valid current whitelist entries when none are given' {
         (Resolve-ControllerIp -CurrentWhitelist '100.64.0.11, 0.0.0.0') -join ',' | Should -Be '100.64.0.11'
     }
+    It "drops a Tailscale IPv6 entry from the current whitelist, keeping the 100.x one" {
+        (Resolve-ControllerIp -CurrentWhitelist '100.64.0.11, fd7a:115c:a1e0::1') -join ',' | Should -Be '100.64.0.11' # check-private-data: allow
+    }
     It 'returns nothing when nothing is given or whitelisted' {
         @(Resolve-ControllerIp).Count | Should -Be 0
     }
-    It 'refuses a given non-Tailscale address: <_>' -ForEach @('192.168.0.10', '100.64.0.0/10', '0.0.0.0') {
+    It 'refuses a given non-Tailscale address: <_>' -ForEach @('192.168.0.10', '100.64.0.0/10', '0.0.0.0', 'fd7a:115c:a1e0::1') { # check-private-data: allow
         { Resolve-ControllerIp -ControllerIp @($_) } | Should -Throw '*Not a Tailscale address*'
     }
     It "refuses this PC's own address, alone or in a comma-separated list" {
