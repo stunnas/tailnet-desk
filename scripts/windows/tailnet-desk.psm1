@@ -30,6 +30,9 @@ $script:Setting = [pscustomobject]@{
     RustDeskSha256  = '523ba0efbf62a21739961b62c7daaffb44d3da86139c546b364fd4e1333ed249'
     # winget package Tailscale.Tailscale, released 2026-10-28; Tailscale updates itself afterwards.
     TailscaleWinget = '1.104.4'
+    # Publishers named in the Authenticode certificates (both CN and O) of RustDesk's installer and of tailscale.exe.
+    RustDeskSigner  = 'PURSLANE'
+    TailscaleSigner = 'Tailscale Inc.'
 }
 $script:Setting | Add-Member -NotePropertyName RustDeskAsset -NotePropertyValue "rustdesk-$($script:Setting.RustDeskVersion)-x86_64.exe"
 
@@ -281,6 +284,36 @@ function Get-HostSettingFinding {
     $basis = if ($given.Count -gt 0) { $validGiven } else { @($listed | Where-Object { Test-TailscaleIPv4 -Address $_ }) }
     $results += Get-OptionFinding -Wanted (Get-HostOption -ControllerIp $basis) -Actual $Current
     return $results
+}
+
+function Get-SubjectField {
+    <#
+    .SYNOPSIS
+    One field (such as CN or O) of a certificate subject as Windows writes it ("CN=Name, O=Name, C=SG"), or $null.
+    A quoted value ("DigiCert, Inc.") may hold commas.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowEmptyString()][string]$Subject, [Parameter(Mandatory)][string]$Field)
+    $m = [regex]::Match($Subject, '(?:^|,\s*)' + [regex]::Escape($Field) + '=(?:"((?:[^"]|"")*)"|([^,]*))')
+    if (-not $m.Success) { return $null }
+    if ($m.Groups[1].Success) { return $m.Groups[1].Value.Replace('""', '"') }
+    return $m.Groups[2].Value.Trim()
+}
+
+function Test-PublisherSignature {
+    <#
+    .SYNOPSIS
+    True when an Authenticode signature (as Get-AuthenticodeSignature returns it) is valid, so Windows trusts its
+    certificate chain, and its signing certificate names the publisher in both CN and O.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([AllowNull()]$Signature, [Parameter(Mandatory)][string]$Publisher)
+    if (-not $Signature -or "$($Signature.Status)" -ne 'Valid' -or -not $Signature.SignerCertificate) { return $false }
+    $subject = "$($Signature.SignerCertificate.Subject)"
+    return ((Get-SubjectField -Subject $subject -Field 'CN') -ceq $Publisher -and
+        (Get-SubjectField -Subject $subject -Field 'O') -ceq $Publisher)
 }
 
 function Select-ReleaseAsset {
@@ -621,6 +654,13 @@ function Get-TailscaleExe {
     return $null
 }
 
+function Get-FileSignature {
+    <# .SYNOPSIS A file's Authenticode signature, as Get-AuthenticodeSignature returns it. #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+    return Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
+}
+
 function Get-TailscaleIPv4 {
     <# .SYNOPSIS This PC's Tailscale address, or $null when Tailscale isn't installed or isn't signed in. #>
     [CmdletBinding()]
@@ -774,7 +814,11 @@ function Get-FirewallRuleState {
 # --- System changes ------------------------------------------------------------------------------------------
 
 function Install-Tailscale {
-    <# .SYNOPSIS Installs the pinned Tailscale with winget. Changes: installs a program. #>
+    <#
+    .SYNOPSIS
+    Installs the pinned Tailscale with winget, then checks that the installed tailscale.exe carries Tailscale's valid
+    Authenticode signature. Changes: installs a program.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     param()
     if (Get-TailscaleExe) { Write-Host 'Tailscale is already installed.'; return }
@@ -788,6 +832,13 @@ function Install-Tailscale {
         $code = Invoke-Winget -Argument @('install', '--id', 'Tailscale.Tailscale', '--exact', '--version', $version,
             '--source', 'winget', '--silent', '--accept-package-agreements', '--accept-source-agreements')
         if ($code -ne 0) { throw "winget couldn't install Tailscale $version (exit code $code)." }
+        $exe = Get-TailscaleExe
+        if (-not $exe) { throw "winget finished, but tailscale.exe isn't in Program Files. Restart the PC and run this script again." }
+        $publisher = $script:Setting.TailscaleSigner
+        if (-not (Test-PublisherSignature -Signature (Get-FileSignature -Path $exe) -Publisher $publisher)) {
+            throw "The installed tailscale.exe isn't validly signed by Tailscale ($publisher). Uninstall Tailscale and run this script again."
+        }
+        Write-Host "Tailscale's signature is valid ($publisher)."
     }
 }
 
@@ -869,8 +920,8 @@ function Install-RustDesk {
     <#
     .SYNOPSIS
     Downloads the pinned RustDesk release from its official GitHub repo into a private folder, checks the file's
-    SHA-256 against the pinned one while holding it open so it can't be swapped, and installs it with the RustDesk
-    service. Changes: installs a program and a
+    SHA-256 against the pinned one and its Authenticode signature (RustDesk's publisher) while holding it open so it
+    can't be swapped, and installs it with the RustDesk service. Changes: installs a program and a
     service; RustDesk's installer also adds Windows Firewall rules.
     #>
     [CmdletBinding(SupportsShouldProcess)]
@@ -903,6 +954,10 @@ function Install-RustDesk {
             throw "The download's SHA-256 doesn't match the pinned one. Nothing was installed."
         }
         Write-Host 'SHA-256 matches the pinned value.'
+        if (-not (Test-PublisherSignature -Signature (Get-FileSignature -Path $file) -Publisher $s.RustDeskSigner)) {
+            throw "The download isn't validly signed by RustDesk's publisher ($($s.RustDeskSigner)). Nothing was installed."
+        }
+        Write-Host "Its signature is valid ($($s.RustDeskSigner))."
 
         if ($PSCmdlet.ShouldProcess("RustDesk $($s.RustDeskVersion)", 'Install with its service')) {
             $p = Start-Process -FilePath $file -ArgumentList '--silent-install' -PassThru -ErrorAction Stop

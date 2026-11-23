@@ -63,15 +63,18 @@ controllers locked, and don't let RustDesk remember the host's password on them
 | [`test-from-controller.sh`](scripts/mac/test-from-controller.sh) | Mac controller, in Terminal | Checks a Windows or Mac host answers over Tailscale and not over the home network. Changes nothing. |
 | [`enable-pf.sh`](scripts/mac/enable-pf.sh) / [`undo-pf.sh`](scripts/mac/undo-pf.sh) | Mac host, in Terminal | Optional: lets RustDesk's port answer only to addresses in Tailscale's ranges (which a few carrier-grade NAT networks also use), also after a restart / undoes it. |
 
-The scripts install pinned versions and check RustDesk's SHA-256 fingerprint before running it. On Windows the pins
-are in `Setting` at the top of [`tailnet-desk.psm1`](scripts/windows/tailnet-desk.psm1): open it and read the lines
-`RustDeskVersion = '...'` (also used by the guides' manual path) and `TailscaleWinget = '...'` (used only by the
-script; the manual path installs Tailscale's current release, and Tailscale updates itself either way). On a Mac they
-are at the top of [`tailnet-desk.sh`](scripts/mac/tailnet-desk.sh): `TD_RUSTDESK_VERSION`, and
-`TD_TAILSCALE_VERSION` with the Tailscale installer's SHA-256 (used only by the script, as on Windows), with each
-one's Apple signing team, which the script checks too. Both versions are the same on Windows and Mac, and tests check
-that. The Windows scripts are PowerShell, which every Windows PC has; the Mac scripts and the repo's checks are bash,
-and the Mac scripts run on the bash 3.2 every Mac has.
+The scripts install pinned versions and check each download before running it: its SHA-256 fingerprint, and who
+signed it. On Windows, RustDesk's installer must carry its publisher's valid signature (`PURSLANE`) and the
+`tailscale.exe` winget installs must carry Tailscale's (`Tailscale Inc.`); winget checks Tailscale's SHA-256 against
+its own catalogue. On a Mac, RustDesk's disk image and Tailscale's installer must be signed by their Apple developer
+teams, and Tailscale's installer notarized by Apple. On Windows the pins are in `Setting` at the top of
+[`tailnet-desk.psm1`](scripts/windows/tailnet-desk.psm1): open it and read the lines `RustDeskVersion = '...'` (also
+used by the guides' manual path) and `TailscaleWinget = '...'` (used only by the script; the manual path installs
+Tailscale's current release, and Tailscale updates itself either way). On a Mac they are at the top of
+[`tailnet-desk.sh`](scripts/mac/tailnet-desk.sh): `TD_RUSTDESK_VERSION`, and `TD_TAILSCALE_VERSION` with the
+Tailscale installer's SHA-256 (used only by the script, as on Windows). Both versions are the same on Windows and
+Mac, and tests check that. The Windows scripts are PowerShell, which every Windows PC has; the Mac scripts and the
+repo's checks are bash, and the Mac scripts run on the bash 3.2 every Mac has.
 
 ## Folders
 

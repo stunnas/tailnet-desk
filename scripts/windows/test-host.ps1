@@ -31,6 +31,13 @@ $findings += [pscustomobject]@{ Check = "Network adapter '$($setting.AdapterName
 # RustDesk
 $exe = Get-RustDeskExe
 $findings += [pscustomobject]@{ Check = 'RustDesk is installed'; Pass = [bool]$exe; Detail = 'not in Program Files' }
+if ($exe) {
+    $findings += [pscustomobject]@{
+        Check  = "RustDesk is signed by its publisher ($($setting.RustDeskSigner))"
+        Pass   = (Test-PublisherSignature -Signature (Get-FileSignature -Path $exe) -Publisher $setting.RustDeskSigner)
+        Detail = 'reinstall it from github.com/rustdesk/rustdesk'
+    }
+}
 $svc = Get-Service -Name $setting.ServiceName -ErrorAction SilentlyContinue
 $findings += [pscustomobject]@{
     Check = 'RustDesk service is running'; Pass = [bool]($svc -and "$($svc.Status)" -eq 'Running'); Detail = "Get-Service $($setting.ServiceName)"

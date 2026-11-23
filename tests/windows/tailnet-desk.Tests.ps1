@@ -256,8 +256,59 @@ Describe 'Select-ReleaseAsset' {
     }
 }
 
+Describe 'Get-SubjectField' {
+    It 'reads a plain field, a quoted field with a comma, and nothing for a missing field' {
+        $subject = 'CN=PURSLANE, O="Example, Inc.", OID.2.5.4.15=Business Entity, C=SG'
+        Get-SubjectField -Subject $subject -Field 'CN' | Should -Be 'PURSLANE'
+        Get-SubjectField -Subject $subject -Field 'O' | Should -Be 'Example, Inc.'
+        Get-SubjectField -Subject $subject -Field 'C' | Should -Be 'SG'
+        Get-SubjectField -Subject $subject -Field 'L' | Should -BeNullOrEmpty
+        Get-SubjectField -Subject '' -Field 'CN' | Should -BeNullOrEmpty
+    }
+    It 'never takes O from an OID field' {
+        Get-SubjectField -Subject 'CN=X, OID.1.3.6.1.4.1.311.60.2.1.3=SG' -Field 'O' | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Test-PublisherSignature' {
+    BeforeAll {
+        function New-Signature([string]$Status, [string]$Subject) {
+            [pscustomobject]@{ Status = $Status; SignerCertificate = [pscustomobject]@{ Subject = $Subject } }
+        }
+        # The signers of RustDesk's 1.5.3 installer and Tailscale's 1.104.4 installer, as Windows writes them.
+        $script:rustdesk = 'CN=PURSLANE, O=PURSLANE, S=North West, C=SG, SERIALNUMBER=53481265A, OID.2.5.4.15=Business Entity, OID.1.3.6.1.4.1.311.60.2.1.3=SG'
+        $script:tailscale = 'CN=Tailscale Inc., O=Tailscale Inc., L=Toronto, S=Ontario, C=CA, SERIALNUMBER=1131559-5, OID.2.5.4.15=Private Organization, OID.1.3.6.1.4.1.311.60.2.1.3=CA'
+    }
+    It 'accepts a valid signature from the pinned publishers' {
+        $s = Get-TailnetDeskSetting
+        Test-PublisherSignature -Signature (New-Signature 'Valid' $script:rustdesk) -Publisher $s.RustDeskSigner | Should -BeTrue
+        Test-PublisherSignature -Signature (New-Signature 'Valid' $script:tailscale) -Publisher $s.TailscaleSigner | Should -BeTrue
+    }
+    It 'refuses a signature that is not valid: <_>' -ForEach @('NotSigned', 'HashMismatch', 'NotTrusted', 'UnknownError') {
+        Test-PublisherSignature -Signature (New-Signature $_ $script:rustdesk) -Publisher 'PURSLANE' | Should -BeFalse
+    }
+    It 'refuses another publisher, a match in only CN or O, a different case, and no signature' {
+        Test-PublisherSignature -Signature (New-Signature 'Valid' $script:tailscale) -Publisher 'PURSLANE' | Should -BeFalse
+        Test-PublisherSignature -Signature (New-Signature 'Valid' 'CN=PURSLANE, O=Someone Else') -Publisher 'PURSLANE' | Should -BeFalse
+        Test-PublisherSignature -Signature (New-Signature 'Valid' 'CN=Someone Else, O=PURSLANE') -Publisher 'PURSLANE' | Should -BeFalse
+        Test-PublisherSignature -Signature (New-Signature 'Valid' 'CN=purslane, O=purslane') -Publisher 'PURSLANE' | Should -BeFalse
+        Test-PublisherSignature -Signature $null -Publisher 'PURSLANE' | Should -BeFalse
+        Test-PublisherSignature -Signature ([pscustomobject]@{ Status = 'Valid'; SignerCertificate = $null }) -Publisher 'PURSLANE' | Should -BeFalse
+    }
+}
+
+Describe 'Windows guides' {
+    It 'both tell you to check RustDesk for the publisher the script checks: <_>' -ForEach @('host-windows', 'controller-windows') {
+        $guide = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "../../docs/$_.md")
+        $guide | Should -BeLike "*Digital Signatures*must show **$((Get-TailnetDeskSetting).RustDeskSigner)***"
+    }
+}
+
 Describe 'Install-RustDesk' {
     BeforeEach {
+        Mock -ModuleName tailnet-desk Get-FileSignature {
+            [pscustomobject]@{ Status = 'Valid'; SignerCertificate = [pscustomobject]@{ Subject = 'CN=PURSLANE, O=PURSLANE, C=SG' } }
+        }
         # Not installed at the first look; installed once the (mocked) installer has run.
         $script:installed = $false
         Mock -ModuleName tailnet-desk Get-RustDeskExe { if ($script:installed) { 'rustdesk.exe' } else { $null } }
@@ -286,6 +337,12 @@ Describe 'Install-RustDesk' {
         Should -Invoke -ModuleName tailnet-desk Start-Process -Times 0 -Exactly
         Should -Invoke -ModuleName tailnet-desk Open-LockedFile -Times 1 -Exactly
         Should -Invoke -ModuleName tailnet-desk Get-FileHash -Times 1 -Exactly -ParameterFilter { $null -ne $InputStream }
+        Should -Invoke -ModuleName tailnet-desk Remove-Item -Times 1 -Exactly -ParameterFilter { $LiteralPath -eq 'private-folder' }
+    }
+    It 'installs nothing and cleans up when the download is not validly signed by RustDesk' {
+        Mock -ModuleName tailnet-desk Get-FileSignature { [pscustomobject]@{ Status = 'NotSigned'; SignerCertificate = $null } }
+        { Install-RustDesk } | Should -Throw "*isn't validly signed by RustDesk's publisher (PURSLANE)*"
+        Should -Invoke -ModuleName tailnet-desk Start-Process -Times 0 -Exactly
         Should -Invoke -ModuleName tailnet-desk Remove-Item -Times 1 -Exactly -ParameterFilter { $LiteralPath -eq 'private-folder' }
     }
     It 'runs the silent install when the hash matches, then deletes the download folder' {
@@ -858,9 +915,14 @@ Describe 'Get-FirewallRuleState' {
 
 Describe 'Install-Tailscale' {
     BeforeEach {
-        Mock -ModuleName tailnet-desk Get-TailscaleExe { $null }
+        # Not installed at the first look; installed once the (mocked) winget has run.
+        $script:tsInstalled = $false
+        Mock -ModuleName tailnet-desk Get-TailscaleExe { if ($script:tsInstalled) { 'tailscale.exe' } else { $null } }
         Mock -ModuleName tailnet-desk Test-WingetPresent { $true }
-        Mock -ModuleName tailnet-desk Invoke-Winget { 0 }
+        Mock -ModuleName tailnet-desk Invoke-Winget { $script:tsInstalled = $true; 0 }
+        Mock -ModuleName tailnet-desk Get-FileSignature {
+            [pscustomobject]@{ Status = 'Valid'; SignerCertificate = [pscustomobject]@{ Subject = 'CN=Tailscale Inc., O=Tailscale Inc., C=CA' } }
+        }
         Mock -ModuleName tailnet-desk Write-Host { }
     }
     It 'installs the pinned version with winget' {
@@ -868,8 +930,23 @@ Describe 'Install-Tailscale' {
         $v = (Get-TailnetDeskSetting).TailscaleWinget
         Should -Invoke -ModuleName tailnet-desk Invoke-Winget -Times 1 -Exactly -ParameterFilter { ($Argument -join ' ') -like "install --id Tailscale.Tailscale --exact --version $v *" }
     }
+    It "checks the installed tailscale.exe's signature" {
+        Install-Tailscale
+        Should -Invoke -ModuleName tailnet-desk Get-FileSignature -Times 1 -Exactly -ParameterFilter { $Path -eq 'tailscale.exe' }
+    }
+    It 'throws when the installed tailscale.exe is not validly signed by Tailscale' {
+        Mock -ModuleName tailnet-desk Get-FileSignature {
+            [pscustomobject]@{ Status = 'Valid'; SignerCertificate = [pscustomobject]@{ Subject = 'CN=Someone Else, O=Someone Else' } }
+        }
+        { Install-Tailscale } | Should -Throw "*isn't validly signed by Tailscale (Tailscale Inc.)*"
+    }
+    It "throws when winget succeeds but tailscale.exe isn't there" {
+        Mock -ModuleName tailnet-desk Invoke-Winget { 0 }
+        { Install-Tailscale } | Should -Throw "*tailscale.exe isn't in Program Files*"
+        Should -Invoke -ModuleName tailnet-desk Get-FileSignature -Times 0 -Exactly
+    }
     It 'does nothing when Tailscale is already installed' {
-        Mock -ModuleName tailnet-desk Get-TailscaleExe { 'tailscale.exe' }
+        $script:tsInstalled = $true
         Install-Tailscale
         Should -Invoke -ModuleName tailnet-desk Invoke-Winget -Times 0 -Exactly
     }
