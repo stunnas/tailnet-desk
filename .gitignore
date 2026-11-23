@@ -1,0 +1,7 @@
+# Local review scratch files from /sillplate:review
+.sillplate/
+# Local secrets and tool state that must never be committed
+.env
+.env.*
+.claude/settings.local.json
+node_modules/
