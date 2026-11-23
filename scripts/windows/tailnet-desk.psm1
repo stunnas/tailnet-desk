@@ -701,15 +701,15 @@ function Get-TailscaleIPv4 {
     <#
     .SYNOPSIS
     This PC's Tailscale address, or $null when Tailscale isn't installed or isn't signed in. tailscale.exe is only run
-    when it carries Tailscale's valid signature; otherwise this gives $null too, and the signature check says why.
+    when it carries Tailscale's valid signature; otherwise this gives $null too. The scripts that call it also report
+    that signature check (Get-SignatureFinding), so the user sees why.
     #>
     [CmdletBinding()]
     param()
     $exe = Get-TailscaleExe
     if (-not $exe) { return $null }
-    try { $signed = Test-PublisherSignature -Signature (Get-FileSignature -Path $exe) -Publisher $script:Setting.TailscaleSigner }
-    catch { $signed = $false }
-    if (-not $signed) { return $null }
+    $signed = Get-SignatureFinding -Name 'Tailscale' -Path $exe -Publisher $script:Setting.TailscaleSigner -Detail 'not run'
+    if (-not $signed.Pass) { return $null }
     $out = (& $exe ip -4 2>$null | Out-String).Trim()
     if (Test-TailscaleIPv4 -Address $out) { return $out }
     return $null

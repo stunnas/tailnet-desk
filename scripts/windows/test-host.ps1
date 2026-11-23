@@ -7,7 +7,7 @@ Run it on the HOST in PowerShell as administrator (RustDesk only shows its setti
 Prints PASS or FAIL for each check and exits with 1 if anything failed. Each FAIL line is explained in
 docs/host-windows.md, "When something goes wrong".
 
-It can't see the password or two-factor settings; check those in RustDesk itself.
+It can't see the password, two-factor or trusted-devices settings; check those in RustDesk itself.
 
 .PARAMETER ControllerIp
 The Tailscale addresses that should be whitelisted. Leave it out to judge whatever the whitelist holds.

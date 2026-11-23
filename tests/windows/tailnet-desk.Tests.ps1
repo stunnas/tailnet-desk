@@ -465,6 +465,7 @@ Describe 'Get-TailscaleIPv4' {
         Mock -ModuleName tailnet-desk Get-TailscaleExe { $script:fakeTailscale }
         $env:FAKE_TAILSCALE_OUT = "100.64.0.10`r`n"
         Get-TailscaleIPv4 | Should -Be '100.64.0.10'
+        Should -Invoke -ModuleName tailnet-desk Get-FileSignature -Times 1 -Exactly -ParameterFilter { $Path -eq $script:fakeTailscale }
     }
     It 'returns nothing for no output, extra lines, or Tailscale not installed' {
         Mock -ModuleName tailnet-desk Get-TailscaleExe { $script:fakeTailscale }
