@@ -404,7 +404,7 @@ STUB
 
 @test "the Mac and Windows scripts pin the same Tailscale version" {
   mac=$(sed -n "s/^TD_TAILSCALE_VERSION='\(.*\)'.*/\1/p" "$LIB")
-  win=$(sed -n "s/^ *TailscaleWinget *= *'\([^']*\)'.*/\1/p" "$ROOT/scripts/windows/tailnet-desk.psm1")
+  win=$(sed -n "s/^ *TailscaleVersion *= *'\([^']*\)'.*/\1/p" "$ROOT/scripts/windows/tailnet-desk.psm1")
   [ -n "$mac" ]
   [ "$mac" = "$win" ]
 }

@@ -33,7 +33,8 @@ TD_RUSTDESK_AGENT='/Library/LaunchAgents/com.carriez.RustDesk_server.plist'
 TD_RUSTDESK_DAEMON='/Library/LaunchDaemons/com.carriez.RustDesk_service.plist'
 TD_TAILSCALE_APP='/Applications/Tailscale.app'
 # Tailscale's Standalone installer from its own package server. Released 2026-10-28: the same version the Windows
-# script installs with winget (tests/mac checks it). Bump together with the SHA-256; Tailscale updates itself afterwards.
+# script installs from Tailscale's MSI (tests/mac checks it). Bump together with the SHA-256; afterwards Tailscale's
+# updater applies.
 TD_TAILSCALE_VERSION='1.104.4'
 TD_TAILSCALE_PKG_SHA256='ee8800f6597acd040ab45f3fece21cb89fb691968a6a2e2a30d1f2f2707b41d2'
 TD_TAILSCALE_PKG_BASE='https://pkgs.tailscale.com/stable'
