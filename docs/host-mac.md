@@ -219,7 +219,7 @@ After that it lists the password and two-factor steps for you to do in RustDesk,
 again.
 
 Later runs without `--controller-ip` keep the controller addresses already on the whitelist. They don't keep anything
-that isn't a single Tailscale address, such as a range or this Mac's own address: the script names those entries.
+that isn't a single `100.x` Tailscale address, such as a range or this Mac's own address: the script names those entries.
 If valid addresses are left, the whitelist is set to just those. If none are left, direct IP access is turned off
 and the old entries stay in RustDesk's whitelist, so the check at the end fails them. Run the script again with
 `--controller-ip` and the controller's address to replace them.
