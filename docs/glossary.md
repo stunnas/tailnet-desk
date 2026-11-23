@@ -8,7 +8,7 @@
 | **Controller** | The device you sit at. It only views the host's screen and sends your mouse and keyboard. |
 | **IP address** | A device's address on a network, like a street address for data. Example: `192.168.0.10`. |
 | **Home IP / LAN address** | The address your router gives a computer on your home network, usually starting with `192.168.` or `10.`. Only devices on the same Wi-Fi or cable can use it. |
-| **Tailscale address** | The address Tailscale gives each device, always starting with `100.` (written `100.x` in the guides). It stays the same wherever the device goes, and only your own Tailscale devices can reach it. |
+| **Tailscale address** | The address Tailscale gives each device, starting with `100.` (written `100.x` in the guides). It stays the same wherever the device goes, and only your own Tailscale devices can reach it. Tailscale also gives each device a second, longer address starting with `fd7a` (IPv6, in Tailscale's range `fd7a:115c:a1e0::/48`). The guides and scripts use only the `100.x` one: it's short enough to read and type, and RustDesk's whitelist matches the exact address a controller connects from, so one address per device keeps it to one entry each. A connection from the long address isn't on the whitelist and is refused, so mixing them up fails safely. |
 | **Tailscale network (tailnet)** | All the devices signed in to your Tailscale account. They can reach each other; nobody else can. |
 | **Port** | A numbered door on a computer. Each program listens at its own door. RustDesk's direct connections use port **21118**. |
 | **Listening** | A program waiting at its port for someone to connect. A port nothing listens on can't be connected to. |

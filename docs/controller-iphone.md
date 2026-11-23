@@ -21,7 +21,7 @@ may differ in your version.
 2. Open it, sign in with the **same account as the host**, and allow it to add a VPN configuration when iOS asks.
    Two accounts make two separate networks that can't see each other.
 3. In the Tailscale app, tap this iPhone in the list (or open the
-   [admin console](https://login.tailscale.com/admin/machines)) and note its address starting with `100.`. The host
+   [admin console](https://login.tailscale.com/admin/machines)) and note its address starting with `100.` (the short one; Tailscale also shows a long one starting `fd7a:`, see the [glossary](glossary.md)). The host
    needs it for its whitelist.
 
 Now go back to the host and add this iPhone's address to its whitelist (host guide:
