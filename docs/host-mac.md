@@ -99,8 +99,8 @@ password). Menu names may differ slightly between versions.
 | Where | Setting | Set it to | Why |
 |---|---|---|---|
 | Security | Password | **Use permanent password**, then **Set permanent password** | Generate a random password of 20 or more characters in your password manager, save it there, and paste it in. Never reuse it, not even on another of your computers: one leak would then open both. It lets you connect when nobody is at the host. |
-| Security | Two-factor authentication | **On** | A QR code appears. In your authenticator app, tap **+**, scan it, and name the entry after this Mac. A stolen password alone is then useless. Don't photograph or share the QR code: it's the secret that makes the codes. A controller that was trusted for two-factor skips the code from then on: remove it under **Manage trusted devices** in the same section. |
-| Security | Enable trusted devices | Your choice | With it on, a controller can tick "trust this device" when it connects, and then skips the 6-digit code for the trust duration (90 days unless you change it). That's convenient on a controller that stays locked, but whoever unlocks it then needs only the password. With it off, every connection asks for the code. |
+| Security | Two-factor authentication | **On** | A QR code appears. In your authenticator app, tap **+**, scan it, and name the entry after this Mac. A stolen password alone is then useless. Don't photograph or share the QR code: it's the secret that makes the codes. |
+| Security | Enable trusted devices | Your choice | With it on, a controller can tick "trust this device" when it connects, and then skips the 6-digit code for the trust duration (90 days unless you change it). That's convenient on a controller that stays locked, but whoever unlocks it then needs only the password. With it off, every connection asks for the code. Remove a trusted controller under **Manage trusted devices**. |
 | Security | Accept sessions | **via password** | A session starts on the password and code alone. Nobody has to be at the host to click Accept. |
 | Security | Deny LAN discovery | **On** (ticked) | The Mac stops announcing itself to other RustDesk apps on your home network. |
 | Security | Enable direct IP access | **On**, port **21118** | The controller connects straight to the host's Tailscale address, not through RustDesk's public servers. |
@@ -158,11 +158,12 @@ What happens:
    step 1, items 2 and 3), and run it again.
 2. **RustDesk** (the pinned version), if it isn't installed yet, is downloaded from its official GitHub page into a
    new private folder. The script checks the disk image's SHA-256 fingerprint against the one stored in the script
-   and that RustDesk's Apple developer team signed it, and refuses anything else. An existing RustDesk is kept as it
-   is.
+   and that RustDesk's Apple developer team signed it, and refuses anything else. An existing RustDesk is kept if it
+   passes the same signature check; otherwise the script stops and asks you to delete it.
 3. **RustDesk's service and permissions:** the first time, the script stops and asks you to do manual step 2, items
    3 to 5 (open RustDesk from Applications first). Then run it again. RustDesk then stops using its public servers.
-4. **RustDesk's settings:** the same as the manual table, except the password and two-factor. Direct IP access stays
+4. **RustDesk's settings:** the same as the manual table, except the password, two-factor and trusted devices (left
+   as you set them). Direct IP access stays
    **off** for now, because there's no controller to whitelist yet.
 5. **Sleep:** the Mac no longer sleeps on the charger (skip with `--keep-sleep`).
 6. **A check** runs and prints PASS or FAIL lines, then the steps left for you.
@@ -327,7 +328,7 @@ the firewall instead.
 
 **Run it again after every RustDesk update**, and check that RustDesk is still allowed in both privacy settings.
 
-It can't see the password, two-factor or macOS permission settings; check those in RustDesk and System Settings. The
+It can't see the password, two-factor, trusted-devices or macOS permission settings; check those in RustDesk and System Settings. The
 tests that prove the setup works must run from the controller.
 
 ## When something goes wrong

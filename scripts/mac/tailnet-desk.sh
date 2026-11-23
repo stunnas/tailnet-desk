@@ -577,7 +577,9 @@ td_pf_enable() {
   fi
   rm -rf "$tmp"
   /usr/bin/sudo /bin/launchctl bootout system "$TD_PF_PLIST" 2> /dev/null || true
-  /usr/bin/sudo /bin/launchctl bootstrap system "$TD_PF_PLIST"
+  if ! /usr/bin/sudo /bin/launchctl bootstrap system "$TD_PF_PLIST"; then
+    echo "Couldn't start the firewall step's startup item. Undo it with ./undo-pf.sh." >&2; return 1
+  fi
   # The startup item runs the loader once when it's loaded; wait for its rules to appear.
   local tries=0
   while [ "$tries" -lt 5 ]; do

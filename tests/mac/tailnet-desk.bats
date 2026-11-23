@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
-# Tests for scripts/mac/tailnet-desk.sh and the Mac scripts' argument checks. They change nothing on the system: only
-# functions without system access are called, and the scripts are only run up to their input checks.
+# Tests for scripts/mac/tailnet-desk.sh and the Mac scripts' argument checks. They change nothing on the system: the
+# functions that touch it (the installers, and RustDesk's settings reads and writes) run only with stand-ins for the
+# programs they call by fixed path, and the scripts are only run up to their input checks.
 # Each call runs in /bin/bash with set -euo pipefail, as the scripts do: on a Mac that is bash 3.2, the version the
 # scripts are written for. Run: bats tests/mac
 # Every address below is a documented example or made up.
@@ -473,14 +474,14 @@ pkgutil_output() {
 }
 
 # Stand-ins for the programs the installers run by fixed path. Each logs "name args" to $STUB_LOG. curl writes
-# $CURL_BODY to its -o file (or fails when CURL_FAIL is set), pkgutil prints $PKGUTIL_OUT, codesign exits with
-# $CODESIGN_EXIT (0 unless set), mktemp makes its folder under $T/tmp, and sudo, open and hdiutil only log (hdiutil attach makes the mount folder hold a
+# $CURL_BODY to its -o file (or fails when CURL_FAIL is set), pkgutil prints $PKGUTIL_OUT, codesign fails for a path
+# matching the pattern $CODESIGN_FAIL (or for every path when CODESIGN_EXIT=1), sudo exits with $SUDO_EXIT (0 unless
+# set), hdiutil attach exits with $ATTACH_EXIT, mktemp makes its folder under $T/tmp, and open only logs (hdiutil attach makes the mount folder hold a
 # RustDesk.app). The real shasum hashes the download, so a test sets $WANT_SHA to the hash it wants pinned.
 make_stubs() {
   B="$BATS_TEST_TMPDIR/bin"; T="$BATS_TEST_TMPDIR/sys"; mkdir -p "$B" "$T/tmp"
-  for tool in sudo open; do
-    printf '#!/bin/bash\nprintf "%%s %%s\\n" %s "$*" >> "$STUB_LOG"\n' "$tool" > "$B/$tool"
-  done
+  printf '#!/bin/bash\nprintf "open %%s\\n" "$*" >> "$STUB_LOG"\n' > "$B/open"
+  printf '#!/bin/bash\nprintf "sudo %%s\\n" "$*" >> "$STUB_LOG"\nexit "${SUDO_EXIT:-0}"\n' > "$B/sudo"
   cat > "$B/curl" << 'STUB'
 #!/bin/bash
 printf 'curl %s\n' "$*" >> "$STUB_LOG"
@@ -495,6 +496,9 @@ STUB
   cat > "$B/codesign" << 'STUB'
 #!/bin/bash
 printf 'codesign %s\n' "$*" >> "$STUB_LOG"
+for last in "$@"; do :; done
+# shellcheck disable=SC2254 # the pattern is meant to match
+case "$last" in ${CODESIGN_FAIL:-//none//}) exit 1 ;; esac
 exit "${CODESIGN_EXIT:-0}"
 STUB
   # macOS's mktemp ignores TMPDIR, so this one makes the private download folder under $T/tmp, where a test can look.
@@ -502,7 +506,10 @@ STUB
   cat > "$B/hdiutil" << 'STUB'
 #!/bin/bash
 printf 'hdiutil %s\n' "$*" >> "$STUB_LOG"
-if [ "$1" = attach ]; then while [ "$#" -gt 1 ]; do [ "$1" = -mountpoint ] && mkdir -p "$2/RustDesk.app"; shift; done; fi
+if [ "$1" = attach ]; then
+  [ "${ATTACH_EXIT:-0}" -eq 0 ] || exit "$ATTACH_EXIT"
+  while [ "$#" -gt 1 ]; do [ "$1" = -mountpoint ] && mkdir -p "$2/RustDesk.app"; shift; done
+fi
 exit 0
 STUB
   chmod +x "$B"/*
@@ -567,6 +574,42 @@ good_sha() { printf '%s' "$CURL_BODY" | /usr/bin/shasum -a 256 | awk '{ print $1
   run_installer td_install_tailscale
   [ "$status" -eq 1 ]
   [[ "$output" == *"isn't signed by Tailscale's Apple team after installing"* ]] || false
+  ! grep -q '^open' "$STUB_LOG"
+}
+
+@test "the installers clean up and run nothing with sudo when the download fails" {
+  make_stubs
+  export CURL_FAIL=1
+  for f in td_install_tailscale td_install_rustdesk; do
+    run_installer "$f"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Couldn't download"* ]] || false
+    [ -z "$(ls -A "$T/tmp")" ]
+  done
+  ! grep -q '^sudo' "$STUB_LOG"
+}
+
+@test "td_install_tailscale cleans up and says so when macOS's installer fails" {
+  make_stubs
+  export WANT_SHA=$(good_sha) PKGUTIL_OUT="$(pkgutil_output)" SUDO_EXIT=1
+  run_installer td_install_tailscale
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"macOS's installer couldn't install Tailscale"* ]] || false
+  [ -z "$(ls -A "$T/tmp")" ]
+  ! grep -q '^open' "$STUB_LOG"
+}
+
+@test "the installers keep what's already installed and download nothing" {
+  make_stubs
+  mkdir -p "$T/Tailscale.app/Contents/MacOS" "$T/RustDesk.app/Contents/MacOS"
+  for exe in "$T/Tailscale.app/Contents/MacOS/Tailscale" "$T/RustDesk.app/Contents/MacOS/RustDesk"; do
+    printf '#!/bin/bash\n' > "$exe"; chmod +x "$exe"
+  done
+  run_installer td_install_tailscale
+  [ "$status" -eq 0 ]; [[ "$output" == *'Tailscale is already installed.'* ]] || false
+  run_installer td_install_rustdesk
+  [ "$status" -eq 0 ]; [[ "$output" == *'RustDesk is already installed.'* ]] || false
+  ! grep -q '^curl' "$STUB_LOG"
 }
 
 @test "td_install_rustdesk copies nothing and leaves no download when the hash or the disk image's signature fails" {
@@ -583,6 +626,42 @@ good_sha() { printf '%s' "$CURL_BODY" | /usr/bin/shasum -a 256 | awk '{ print $1
   [ "$status" -eq 1 ]
   [[ "$output" == *"disk image isn't signed by RustDesk's Apple team"* ]] || false
   ! grep -q '^sudo\|^hdiutil' "$STUB_LOG"
+  [ -z "$(ls -A "$T/tmp")" ]
+}
+
+@test "td_install_rustdesk copies nothing when the disk image won't open or the app inside isn't RustDesk's own" {
+  make_stubs
+  export WANT_SHA=$(good_sha) ATTACH_EXIT=1
+  run_installer td_install_rustdesk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Couldn't open the disk image"* ]] || false
+  ! grep -q '^sudo' "$STUB_LOG"
+  [ -z "$(ls -A "$T/tmp")" ]
+  : > "$STUB_LOG"
+  export ATTACH_EXIT=0 CODESIGN_FAIL='*/mount/RustDesk.app'
+  run_installer td_install_rustdesk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"app in the disk image isn't signed by RustDesk's Apple team"* ]] || false
+  ! grep -q '^sudo' "$STUB_LOG"
+  grep -q '^hdiutil detach' "$STUB_LOG"
+  [ -z "$(ls -A "$T/tmp")" ]
+}
+
+@test "td_install_rustdesk copies a checked app to Applications, detaches, cleans up and checks the copy" {
+  make_stubs
+  export WANT_SHA=$(good_sha)
+  run_installer td_install_rustdesk
+  [ "$status" -eq 0 ]
+  grep -q "^sudo /usr/bin/ditto .*/mount/RustDesk.app $T/RustDesk.app\$" "$STUB_LOG"
+  grep -q '^hdiutil detach' "$STUB_LOG"
+  [ "$(grep '^codesign' "$STUB_LOG" | tail -n 1)" = "codesign --verify --strict -R=anchor apple generic and certificate leaf[subject.OU] = \"HZF9JMC8YN\" $T/RustDesk.app" ]
+  [ -z "$(ls -A "$T/tmp")" ]
+  : > "$STUB_LOG"
+  export SUDO_EXIT=1
+  run_installer td_install_rustdesk
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Couldn't copy RustDesk to Applications"* ]] || false
+  grep -q '^hdiutil detach' "$STUB_LOG"
   [ -z "$(ls -A "$T/tmp")" ]
 }
 

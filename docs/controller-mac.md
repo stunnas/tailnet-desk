@@ -11,8 +11,8 @@ two settings, and the tests that prove the host is locked down.
 **Example addresses in these guides:** the host is `100.64.0.10` (home address `192.168.0.10`) and this controller
 is `100.64.0.11`. Use your real ones from the Tailscale admin console.
 
-**Not yet followed on a Mac controller.** Its steps match the Mac host guide's and the Windows controller guide's,
-but nobody has followed this guide end to end yet, and RustDesk's menu names may differ in your version.
+**Not yet followed end to end on a Mac controller:** see the [README's Status](../README.md#status). Its steps match
+the Mac host guide's and the Windows controller guide's, and RustDesk's menu names may differ in your version.
 
 ## 1. Join Tailscale
 
@@ -110,8 +110,8 @@ nc -z -G 3 192.168.0.10 21118
 
 ### With the script
 
-The same two tests in one go. It has run on a real Mac against a Windows host; against a Mac host, do the tests by
-hand as well until it has run there too.
+The same two tests in one go. Until it has run against a Mac host (see the [README's Status](../README.md#status)),
+do the tests by hand as well when the host is a Mac.
 
 1. Get the scripts as on a Mac host ([host guide, script path, step 1](host-mac.md#1-get-the-scripts)).
 2. In Terminal, in the `scripts/mac` folder, run it with your two host addresses in place of the examples:

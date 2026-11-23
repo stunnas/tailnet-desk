@@ -11,9 +11,9 @@ itself, so the phone needs no lock-down: two apps, and the tests that prove the 
 **Example addresses in these guides:** the host is `100.64.0.10` and this iPhone is `100.64.0.12`. Use your real
 ones from the Tailscale app or admin console.
 
-**What has been checked on an iPhone:** connecting to a Mac host over Tailscale, the password and two-factor prompts,
-and "Failed to connect" on the host's Wi-Fi address with Tailscale off. The app's button and menu names, the developer
-name and the data use come from RustDesk's App Store page and documentation and may differ in your version.
+**Partly followed on an iPhone:** see the [README's Status](../README.md#status) for what has been checked. The app's
+button and menu names, the developer name and the data use come from RustDesk's App Store page and documentation and
+may differ in your version.
 
 ## 1. Join Tailscale
 

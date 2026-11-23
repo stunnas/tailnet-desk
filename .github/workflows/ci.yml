@@ -104,7 +104,11 @@ jobs:
           git fetch -q --depth 1 https://github.com/bats-core/bats-core "$BATS_COMMIT"
           git checkout -q FETCH_HEAD
       - name: ShellCheck
-        run: '"$RUNNER_TEMP/shellcheck" -x -P scripts/mac tools/*.sh scripts/mac/*.sh'
+        run: |
+          "$RUNNER_TEMP/shellcheck" -x -P scripts/mac tools/*.sh scripts/mac/*.sh
+          # The pf step writes this loader onto the Mac and runs it as root at every boot, so it's linted too.
+          bash -c '. scripts/mac/tailnet-desk.sh; td_pf_loader' > "$RUNNER_TEMP/load-pf.sh"
+          "$RUNNER_TEMP/shellcheck" -s bash "$RUNNER_TEMP/load-pf.sh"
       - name: bats
         run: '"$RUNNER_TEMP/bats/bin/bats" tests/tools'
 
@@ -125,6 +129,8 @@ jobs:
       - name: bats (Mac scripts, under /bin/bash)
         run: |
           /bin/bash --version | head -n 1
+          /bin/bash -c '[ "${BASH_VERSINFO[0]}" -eq 3 ] && [ "${BASH_VERSINFO[1]}" -eq 2 ]' ||
+            { echo 'Expected macOS bash 3.2 at /bin/bash' >&2; exit 1; }
           for f in scripts/mac/*.sh; do /bin/bash -n "$f"; done
           "$RUNNER_TEMP/bats/bin/bats" tests/mac
 
