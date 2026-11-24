@@ -100,7 +100,9 @@ The same two tests in one go. Unlike the host scripts, it hasn't been run on a r
 
 1. Get the scripts as on the host ([host guide, script path, step 1](host-windows.md#1-get-the-scripts)).
 2. Open a **normal** PowerShell (not as administrator): press the Windows key, type `powershell`, press Enter.
-3. Type `cd ` (with a space), drag the `windows` folder from File Explorer into the window, and press **Enter**.
+3. Type `cd ` (with a space), drag the `windows` folder (the one inside `scripts`) from File Explorer into the
+   window, and press **Enter**. The prompt now ends in `\scripts\windows>`. If it ends in anything else, you
+   dragged another folder: type `cd ` again and drag in the `windows` folder.
 4. Allow scripts for this window (type `Y` and press **Enter** when it asks "Do you want to change the execution
    policy?"), then run the test with your two host addresses in place of the examples:
 
@@ -141,6 +143,7 @@ For the home address test, this PC must be on the same home network as the host.
 | "Your ip is blocked by the peer" | The host's whitelist doesn't have this PC's address. | Check this PC's `100.x` address in the admin console, and that Tailscale is on here. Then add it on the host. |
 | "Failed to connect" or a timeout | This PC can't reach the host. | Check Tailscale is connected on both and the host is awake. Try `ping`. If ping works, check the host ([Windows](host-windows.md#check-the-host), [Mac](host-mac.md#check-the-host)). |
 | "The '<' operator is reserved" | Angle brackets were left in a command. | Type the real address without `<` and `>`. |
+| "The term '.\test-from-controller.ps1' is not recognized" | PowerShell isn't in the `scripts\windows` folder, so it can't find the script. | Type `cd ` and drag in the `windows` folder (inside `scripts`), as in [step 3 of the script test](#with-the-script-not-yet-tested-on-a-real-pc), until the prompt ends in `\scripts\windows>`. |
 | "That's this PC's own address" | You gave the controller's address instead of the host's. | Use the host's `100.x` address. |
 | `TcpTestSucceeded : True` on the home address | A Windows host's firewall step isn't working, or a Mac host doesn't use its optional firewall step. | On a Mac host without the [firewall step](host-mac.md#optional-limit-rustdesk-to-tailscale-in-the-firewall), this is expected. Otherwise check the host ([Windows](host-windows.md#check-the-host), [Mac](host-mac.md#check-the-host)) and fix what it marks FAIL. |
 | Lag or a choppy picture | The frame rate is too high. | Set it to 30 in the session's display menu. |
