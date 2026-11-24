@@ -36,6 +36,9 @@ BeforeAll {
     if (-not (Get-Command Get-Service -ErrorAction SilentlyContinue)) {
         function global:Get-Service { [CmdletBinding()] param([string[]]$Name) throw 'stub' }
     }
+    if (-not (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue)) {
+        function global:Get-NetTCPConnection { [CmdletBinding()] param($LocalPort, $State) throw 'stub' }
+    }
 
     # A stand-in for rustdesk.exe: prints a value for --option <key>, and exits 3 for the key 'broken'.
     $script:fakeExe = Join-Path $TestDrive 'fake-rustdesk.ps1'
@@ -431,6 +434,34 @@ Describe 'Install-RustDesk' {
         Mock -ModuleName tailnet-desk Write-Warning { }
         Install-RustDesk
         Should -Invoke -ModuleName tailnet-desk Write-Warning -Times 1 -Exactly -ParameterFilter { $Message -like '*private-folder*' }
+    }
+}
+
+Describe 'Test-RustDeskListening' {
+    BeforeEach {
+        # A clock that moves 2 seconds per sleep, so the waiting is tested without real time passing.
+        $script:now = [datetime]'2026-01-01'
+        Mock -ModuleName tailnet-desk Get-Date { $script:now }
+        Mock -ModuleName tailnet-desk Start-Sleep { $script:now = $script:now.AddSeconds(2) }
+        Mock -ModuleName tailnet-desk Write-Host { }
+    }
+    It 'passes at once when the port is already listening' {
+        Mock -ModuleName tailnet-desk Get-NetTCPConnection { [pscustomobject]@{ LocalPort = 21118 } }
+        Test-RustDeskListening -Port 21118 | Should -BeTrue
+        Should -Invoke -ModuleName tailnet-desk Start-Sleep -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Get-NetTCPConnection -Times 1 -Exactly -ParameterFilter { $LocalPort -eq 21118 -and $State -eq 'Listen' }
+    }
+    It 'waits for RustDesk to open the port' {
+        $script:looks = 0
+        Mock -ModuleName tailnet-desk Get-NetTCPConnection { $script:looks++; if ($script:looks -ge 3) { [pscustomobject]@{ LocalPort = 21118 } } }
+        Test-RustDeskListening -Port 21118 | Should -BeTrue
+        $script:looks | Should -Be 3
+        Should -Invoke -ModuleName tailnet-desk Write-Host -Times 1 -Exactly
+    }
+    It 'fails once the time is up' {
+        Mock -ModuleName tailnet-desk Get-NetTCPConnection { }
+        Test-RustDeskListening -Port 21118 -TimeoutSeconds 10 | Should -BeFalse
+        Should -Invoke -ModuleName tailnet-desk Start-Sleep -Times 5 -Exactly
     }
 }
 

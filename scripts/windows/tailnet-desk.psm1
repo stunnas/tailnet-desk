@@ -733,6 +733,28 @@ function Get-RustDeskOption {
     return $values
 }
 
+function Test-RustDeskListening {
+    <#
+    .SYNOPSIS
+    Whether something listens on RustDesk's direct IP access port, waiting up to TimeoutSeconds: RustDesk opens the
+    port a few seconds after direct IP access is turned on, so a check straight after setting it would fail.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([int]$Port = $script:Setting.DirectPort, [int]$TimeoutSeconds = 30)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $said = $false
+    while ($true) {
+        if (@(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue).Count -gt 0) { return $true }
+        if ((Get-Date) -ge $deadline) { return $false }
+        if (-not $said) {
+            Write-Host "Waiting up to $TimeoutSeconds seconds for RustDesk to listen on TCP $Port ..."
+            $said = $true
+        }
+        Start-Sleep -Seconds 2
+    }
+}
+
 function Assert-OnlyNotFound {
     <#
     .SYNOPSIS

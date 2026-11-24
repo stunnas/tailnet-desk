@@ -403,7 +403,7 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 | Whitelist doesn't include this PC's own address | Remove the host's own `100.x` address from the whitelist: only controllers belong there. |
 | Whitelist is not empty while direct IP access is on | Add the controller's address to the whitelist, or turn off direct IP access. |
 | RustDesk setting ... | That setting differs from [step 4's table](#4-rustdesk-security-settings). Fix it in RustDesk, or run `install-host.ps1` again. |
-| RustDesk listens on TCP 21118 | Direct IP access is on but nothing listens: restart the PC. |
+| RustDesk listens on TCP 21118 | Direct IP access is on, but RustDesk didn't open the port within 30 seconds. In the administrator PowerShell, run `Restart-Service RustDesk`, then run `.\test-host.ps1` again. If it still fails, restart the PC. |
 | Windows Firewall is on for the ... profile | Turn Windows Firewall back on for that profile (Windows Security → Firewall & network protection). |
 | Windows Firewall profiles were read | Windows returned no firewall profiles. Run the script again as administrator; if it still fails, check by hand with manual firewall command 6. |
 | RustDesk firewall rules exist | Reinstall RustDesk; its installer creates them. |
