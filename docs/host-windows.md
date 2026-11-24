@@ -199,8 +199,9 @@ from a ZIP you just downloaded from this repo.
 ### 2. Open PowerShell as administrator in that folder
 
 1. Open PowerShell as administrator ([how](#3-firewall-let-rustdesk-answer-only-through-tailscale)).
-2. Type `cd ` (with a space), drag the `windows` folder from File Explorer into the PowerShell window, and press
-   **Enter**. The prompt now ends in `\scripts\windows>`.
+2. Type `cd ` (with a space), drag the `windows` folder (the one inside `scripts`, from step 1.3) from File Explorer
+   into the PowerShell window, and press **Enter**. The prompt now ends in `\scripts\windows>`. If it ends in
+   `\tailnet-desk-main>` instead, you dragged a folder further up: run `cd scripts\windows`.
 3. Windows blocks scripts downloaded from the internet by default. Allow these ones for this window only. Run
    the two commands one at a time. The first asks "Do you want to change the execution policy?": type `Y` and
    press **Enter**.
@@ -363,6 +364,7 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 |---|---|---|
 | "running scripts is disabled on this system" | Windows' default script policy. | Run the two commands in [step 2.3](#2-open-powershell-as-administrator-in-that-folder) in the same window. |
 | "cannot be loaded ... not digitally signed" | The files still carry the downloaded-from-the-internet mark. | Run the `Unblock-File` command in step 2.3. |
+| "The term '.\install-host.ps1' is not recognized" | PowerShell isn't in the `scripts\windows` folder, so it can't find the script. | Run `cd scripts\windows` from the `tailnet-desk-main` folder (or drag the `windows` folder in, as in [step 2.2](#2-open-powershell-as-administrator-in-that-folder)), then run the `Unblock-File` command in step 2.3 again, because it only unblocks the folder it runs in. |
 | "... contains a #requires statement for running as Administrator" | PowerShell isn't running as administrator. | Close it and open it again with **Run as administrator**. |
 | "Not a Tailscale address" | An address given to `-ControllerIp` isn't a Tailscale address (`100.64.x.x` to `100.127.x.x`). | Copy the controller's address from the Tailscale admin console. |
 | "... is this PC's own address" | You gave the host's address instead of the controller's. | Use the controller's `100.x` address. |

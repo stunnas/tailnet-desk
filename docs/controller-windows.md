@@ -100,7 +100,8 @@ The same two tests in one go. Unlike the host scripts, it hasn't been run on a r
 
 1. Get the scripts as on the host ([host guide, script path, step 1](host-windows.md#1-get-the-scripts)).
 2. Open a **normal** PowerShell (not as administrator): press the Windows key, type `powershell`, press Enter.
-3. Type `cd ` (with a space), drag the `windows` folder from File Explorer into the window, and press **Enter**.
+3. Type `cd ` (with a space), drag the `windows` folder (the one inside `scripts`) from File Explorer into the
+   window, and press **Enter**. The prompt now ends in `\scripts\windows>`.
 4. Allow scripts for this window (type `Y` and press **Enter** when it asks "Do you want to change the execution
    policy?"), then run the test with your two host addresses in place of the examples:
 
