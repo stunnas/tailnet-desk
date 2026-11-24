@@ -78,7 +78,9 @@ script paths have the details. On Windows the pins are in `Setting` at the top o
 used by the guides' manual path) and `TailscaleVersion = '...'` with the installer's SHA-256 (used only by the script;
 the manual path installs Tailscale's current release). On a Mac they are at the top of
 [`tailnet-desk.sh`](scripts/mac/tailnet-desk.sh): `TD_RUSTDESK_VERSION`, and `TD_TAILSCALE_VERSION` with the
-Tailscale installer's SHA-256. Both versions are the same on Windows and Mac, and tests check that. The Windows
+Tailscale installer's SHA-256. Both versions are the same on Windows and Mac, and tests check that. Each week the
+[version watch](.github/workflows/version-watch.yml) compares them with the releases and fails its run when a bump
+is due; the bump itself, with new SHA-256 values and a re-test, stays by hand. The Windows
 scripts are PowerShell, which every Windows PC has; the Mac scripts and the repo's checks are bash, and the Mac
 scripts run on the bash 3.2 every Mac has.
 
@@ -93,7 +95,7 @@ Every file is named in kebab-case (`install-host.ps1`, `install-host.sh`, `host-
 | `scripts/windows/` | The Windows scripts and their shared module |
 | `scripts/mac/` | The Mac scripts and their shared library |
 | `tests/` | Pester tests for the Windows module, bats tests for the Mac library and the repo checks, and planted test data |
-| `tools/` | The repo's own checks (private data, links) and the CI module installer |
+| `tools/` | The repo's own checks (private data, links), the version watch's comparison and the CI module installer |
 
 ## Status
 

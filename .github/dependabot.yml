@@ -2,7 +2,8 @@
 # Dependabot can't see the other pins, which are bumped by hand: ShellCheck, bats, actionlint, zizmor and gitleaks in
 # ci.yml, Pester and PSScriptAnalyzer in tools/install-ps-modules.ps1, RustDesk and Tailscale in
 # scripts/windows/tailnet-desk.psm1, and RustDesk (its disk image hashes and Apple signing team) and Tailscale (its
-# installer's SHA-256 and Apple signing team) in scripts/mac/tailnet-desk.sh.
+# installer's SHA-256 and Apple signing team) in scripts/mac/tailnet-desk.sh. For RustDesk and Tailscale, the version
+# watch (workflows/version-watch.yml) says when a bump is due.
 version: 2
 updates:
   - package-ecosystem: github-actions
