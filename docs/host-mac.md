@@ -124,11 +124,12 @@ Then [check the host](#check-the-host) and go to the controller to connect.
 
 > **Partly tested.** On a Mac that already had Tailscale and RustDesk, the scripts ran and passed. Installing
 > Tailscale and RustDesk with the script hasn't run on a real Mac yet, nor has the script waiting for the Tailscale
-> sign-in and asking for the controller's address, so for a fresh install the manual path above is the tested route. See the [README's Status](../README.md#status) for exactly what has run.
+> sign-in and RustDesk's service and asking for the controller's address, so for a fresh install the manual path above is the tested route. See the [README's Status](../README.md#status) for exactly what has run.
 
 The script does the manual path's steps except the ones that need you: allowing Tailscale's network extension and
 signing in, turning off key expiry, allowing RustDesk's service and its two permissions, choosing the password and scanning the
-two-factor QR code. It waits while you sign in to Tailscale, and asks for the controller's address. It's safe to
+two-factor QR code. It waits while you sign in to Tailscale and install RustDesk's service, and asks for the
+controller's address. It's safe to
 run more than once: each run skips what's already done, and pressing Return at the address question keeps the
 valid controllers already on the whitelist.
 
@@ -162,8 +163,13 @@ What happens:
    new private folder. The script checks the disk image's SHA-256 fingerprint against the one stored in the script
    and that RustDesk's Apple developer team signed it, and refuses anything else. An existing RustDesk is kept if it
    passes the same signature check; otherwise the script stops and asks you to delete it.
-3. **RustDesk's service and permissions:** the first time, the script stops and asks you to do manual step 2, items
-   3 to 5 (open RustDesk from Applications first). Then run it again. RustDesk then stops using its public servers.
+3. **RustDesk's service and permissions:** if RustDesk's service isn't running yet, the script waits while you open
+   RustDesk from Applications and install it (manual step 2, item 3). It goes on by itself once the service is
+   running, then asks you to allow RustDesk's two permissions and check it's allowed in the background (manual step
+   2, items 4 and 5) and press **Return**: a script can't see those, so it takes your word. If the service isn't
+   running within 10 minutes, it stops: install it and do items 4 and 5, then run the script again. When the service
+   was already running, the script doesn't ask; it only reminds you to check the two permissions. RustDesk then
+   stops using its public servers.
 4. **RustDesk's settings:** the same as the manual table, except the password, two-factor and trusted devices (left
    as you set them). Then it asks for the controller's address. If the controller has already joined Tailscale
    ([Windows](controller-windows.md#1-join-tailscale), [Mac](controller-mac.md#1-join-tailscale) or
@@ -371,7 +377,8 @@ tests that prove the setup works must run from the controller.
 | "Couldn't install the firewall step's files" | `enable-pf.sh` couldn't put its files in place, for example because the Mac password was wrong. | Run `./enable-pf.sh` again. |
 | "--controller-ip needs an address" or "Unknown option" | The script was run with a mistyped option. | Run it with `--help` to see its options. |
 | "Unsupported Mac type" | The Mac is neither an Apple-chip nor an Intel Mac. | Use the manual path. |
-| "RustDesk's system service isn't installed or running yet" | RustDesk hasn't been opened, or its system service wasn't installed. | Do [manual step 2](#2-rustdesk), items 2 to 5, then run the script again. |
+| "RustDesk's system service isn't installed or running yet" | RustDesk hasn't been opened, or its system service wasn't installed. The script waits up to 10 minutes. | Open RustDesk and click **Install** under "For starting on boot" ([manual step 2](#2-rustdesk), item 3). The script goes on once the service is running. |
+| "RustDesk's service still isn't installed and running" | 10 minutes passed without the service, so the script stopped. RustDesk's settings weren't changed. | Install the service as above, and do [manual step 2](#2-rustdesk), items 4 and 5: the next run doesn't ask about them. If you clicked **Install** and it still isn't running, restart the Mac. Then run the script again. |
 | "RustDesk refused to read the setting ..." or "RustDesk couldn't read the setting ..." | RustDesk's command line didn't answer. | Quit and reopen RustDesk, check it's allowed in the background, then run the script again. |
 | "RustDesk didn't take the setting ..." | RustDesk refused a setting, usually because it isn't running. | Open RustDesk, then run the script again. |
 | "The pf rules didn't load" | The firewall step's startup item didn't load its rules. Its errors are in the log file the message names. | Run `./undo-pf.sh`, then `./enable-pf.sh` again. If it still fails, [open an issue](https://github.com/stunnas/tailnet-desk/issues) with what the log says. |

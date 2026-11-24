@@ -11,7 +11,8 @@
 #      allow its network extension and sign in (you click those).
 #   2. Installs RustDesk (pinned version) from its official GitHub release after checking the disk image's SHA-256
 #      and its Apple signing team, if it isn't installed yet.
-#   3. Stops until RustDesk's background service and macOS permissions are in place (you click those).
+#   3. If RustDesk's background service isn't running yet, waits up to 10 minutes while you install it, then asks you
+#      to allow its two macOS permissions and its background item and press Return (you click those).
 #   4. Sets RustDesk's security settings: no public ID or relay server, permanent password only, sessions start on the
 #      password without anyone clicking Accept, no LAN discovery, and direct IP access with only your controllers
 #      whitelisted (off until there is a controller). Asks for the controllers' addresses unless --controller-ip gave
@@ -62,14 +63,11 @@ step 'Step 2 of 6: RustDesk'
 td_install_rustdesk
 
 step "Step 3 of 6: RustDesk's background service and permissions"
-if ! td_rustdesk_starts_at_boot || ! td_rustdesk_server_running; then
-  echo "RustDesk's system service isn't installed or running yet. At this Mac:"
-  echo '  1. Open RustDesk from Applications. If macOS asks whether to open it, choose Open.'
-  echo '  2. Under "For starting on boot, you need to install system service", click Install and enter your Mac'
-  echo '     password. ("Start service" alone only runs it until the next restart.)'
-  echo '  3. Allow RustDesk in System Settings > Privacy & Security, under both Screen & System Audio Recording and'
-  echo '     Accessibility. Quit and reopen RustDesk after each.'
-  echo 'Then run this script again.'
+if ! td_wait_rustdesk_service; then
+  echo "RustDesk's service still isn't installed and running. Install it as above. Then, in System Settings, allow"
+  echo 'RustDesk under Screen & System Audio Recording and Accessibility in Privacy & Security, and check it is allowed'
+  echo 'in the background under General > Login Items & Extensions: the next run does not ask about those. Then run this'
+  echo "script again. If you clicked Install and it still isn't running, restart the Mac first."
   exit 2
 fi
 echo 'RustDesk is running. Your Mac password may be asked: RustDesk only shows its settings to an administrator.'
