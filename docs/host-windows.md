@@ -177,7 +177,8 @@ Then [check the host](#check-the-host) and go to the controller to [connect](con
 
 > **Tested on one real PC that already had Tailscale and RustDesk.** On it, the script and the check passed, and
 > the tests from the controller worked. Installing Tailscale and RustDesk with the script, and the publisher
-> signature checks added since, haven't been run on a real PC yet: on a new PC, you can install them by hand
+> signature checks added since, haven't been run on a real PC yet, nor has the script waiting for the Tailscale
+> sign-in and asking for the controller's address: on a new PC, you can install them by hand
 > ([steps 1](#1-tailscale) and [2](#2-rustdesk)) and then run the script. See the [README's Status](../README.md#status).
 
 The script does the manual path's steps except the ones that need you: signing in to Tailscale, turning off key
@@ -245,7 +246,7 @@ What happens:
    as you set them). Then it asks for the controller's address. If the controller has already
    [joined Tailscale](controller-windows.md#1-join-tailscale), type its `100.x` address from the
    [Tailscale admin console](https://login.tailscale.com/admin/machines) (not this PC's own) and press **Enter**.
-   Otherwise just press **Enter**: direct IP access stays **off** until you add a controller ([section 4](#4-later-add-the-controller)).
+   Otherwise just press **Enter**: direct IP access stays **off** until you add a controller ([Later: add the controller](#4-later-add-the-controller)).
 5. **Sleep:** the PC no longer sleeps while plugged in.
 6. **A check** runs and prints PASS or FAIL lines, then the steps left for you.
 
@@ -433,7 +434,7 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 
 | What you see | What it means | Fix |
 |---|---|---|
-| "Your ip is blocked by the peer" on the controller | The controller's address isn't on the whitelist, or Tailscale is off on the controller. | Check the controller's `100.x` address and add it (manual step 4, or the script's second run). |
+| "Your ip is blocked by the peer" on the controller | The controller's address isn't on the whitelist, or Tailscale is off on the controller. | Check the controller's `100.x` address and add it ([manual step 4](#4-rustdesk-security-settings), or run `install-host.ps1` again and type it at the question: [Later: add the controller](#4-later-add-the-controller)). |
 | Lost the phone with the authenticator app | You can't pass two-factor. | Sit at the host, turn two-factor off and on in RustDesk's Security settings, and scan the new QR code. |
 | Lost a controller (laptop or phone) | If it saved the password or was trusted for two-factor, anyone who unlocks it can connect. | At the host, remove it under **Manage trusted devices** (Security settings), change the permanent password, and remove its `100.x` address from the whitelist. Also remove it from the [Tailscale admin console](https://login.tailscale.com/admin/machines). |
 

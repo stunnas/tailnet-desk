@@ -23,7 +23,7 @@ Set-StrictMode -Version 3.0
 $script:Setting = [pscustomobject]@{
     DirectPort      = 21118                 # RustDesk direct IP access (TCP)
     ListenWaitSeconds = 30                  # how long the check waits for RustDesk to open DirectPort (docs/host-windows.md says 30)
-    SignInWaitSeconds = 600                 # how long install-host.ps1 waits for the Tailscale sign-in (docs/host-windows.md says 10 minutes)
+    SignInWaitSeconds = 600                 # how long install-host.ps1 waits for the Tailscale sign-in (its help and docs/host-windows.md say 10 minutes)
     AdapterName     = 'Tailscale'           # Tailscale's network adapter on Windows
     ServiceName     = 'RustDesk'
     RuleNames       = @('RustDesk Service', 'rustdesk.exe')   # names RustDesk's installer gives its firewall rules
@@ -153,7 +153,7 @@ function Resolve-ControllerIp {
 function Get-WhitelistChange {
     <#
     .SYNOPSIS
-    What a run without -ControllerIp does to the entries it can't keep (not one Tailscale address, or this PC's own).
+    What a run with no controller address given or typed does to the entries it can't keep (not one Tailscale address, or this PC's own).
     With controllers kept, the whitelist is rewritten to just those, so the others are removed. With none kept,
     direct IP access is turned off and the whitelist isn't rewritten, so the others stay in RustDesk.
     #>
@@ -757,9 +757,9 @@ function Read-ControllerIp {
         [AllowEmptyString()][string]$OwnIp = '',
         [AllowEmptyCollection()][string[]]$Kept = @()
     )
-    $kept = @($Kept)
-    if ($kept.Count -gt 0) {
-        Write-Host "Controllers already on the whitelist: $($kept -join ', ')"
+    $keptList = @($Kept)
+    if ($keptList.Count -gt 0) {
+        Write-Host "Controllers already on the whitelist: $($keptList -join ', ')"
         $prompt = 'Press Enter to keep them, or type the controller addresses to use instead'
         $enter = 'press Enter to keep them'
     } else {
@@ -773,6 +773,32 @@ function Read-ControllerIp {
         try { return (Resolve-ControllerIp -ControllerIp $answer -OwnIp $OwnIp) }
         catch { Write-Host "  $($_.Exception.Message) Type it again, or $enter." -ForegroundColor Yellow }
     }
+}
+
+function Get-ControllerChoice {
+    <#
+    .SYNOPSIS
+    Which controllers install-host.ps1 whitelists, and where they came from. Addresses in -Given (from -ControllerIp)
+    are used without asking. Otherwise it asks (Read-ControllerIp): typed addresses replace the whitelist, and Enter
+    keeps its single Tailscale addresses that aren't this PC's. Given in the result is what was given or typed on
+    this run, none when Enter kept the old ones. Throws on an invalid -Given address, as Resolve-ControllerIp does.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [AllowEmptyCollection()][string[]]$Given = @(),
+        [AllowEmptyString()][string]$CurrentWhitelist = '',
+        [AllowEmptyString()][string]$OwnIp = ''
+    )
+    $list = @(ConvertTo-AddressList -Address $Given)
+    if ($list.Count -gt 0) {
+        $chosen = @(Resolve-ControllerIp -ControllerIp $list -OwnIp $OwnIp)
+        return [pscustomobject]@{ Controllers = $chosen; Given = $chosen; Source = 'from -ControllerIp' }
+    }
+    $kept = @(Resolve-ControllerIp -CurrentWhitelist $CurrentWhitelist -OwnIp $OwnIp)
+    $typed = @(Read-ControllerIp -OwnIp $OwnIp -Kept $kept)
+    if ($typed.Count -gt 0) { return [pscustomobject]@{ Controllers = $typed; Given = $typed; Source = 'typed in' } }
+    return [pscustomobject]@{ Controllers = $kept; Given = @(); Source = 'kept from before' }
 }
 
 function Get-RustDeskOption {

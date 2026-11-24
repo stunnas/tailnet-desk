@@ -78,17 +78,13 @@ Write-Host "RustDesk's firewall rules now apply to the $($setting.AdapterName) a
 
 Write-Step 'Step 4 of 6: RustDesk security settings'
 $current = Get-RustDeskOption -Exe $exe -Key @('whitelist')
-$source = 'from -ControllerIp'
-if ($given.Count -eq 0) {
-    $kept = @(Resolve-ControllerIp -CurrentWhitelist $current['whitelist'] -OwnIp $myIp)
-    $given = @(Read-ControllerIp -OwnIp $myIp -Kept $kept)
-    $source = 'typed in'
-}
-$controllers = @(Resolve-ControllerIp -ControllerIp $given -CurrentWhitelist $current['whitelist'] -OwnIp $myIp)
+# Asks for the controllers' addresses unless -ControllerIp gave them.
+$choice = Get-ControllerChoice -Given $given -CurrentWhitelist $current['whitelist'] -OwnIp $myIp
+$given = @($choice.Given)
+$controllers = @($choice.Controllers)
 $options = Get-HostOption -ControllerIp $controllers
 if ($controllers.Count -gt 0) {
-    if ($given.Count -eq 0) { $source = 'kept from before' }
-    Write-Host "Direct IP access: on. Whitelist ($source): $($options['whitelist'])"
+    Write-Host "Direct IP access: on. Whitelist ($($choice.Source)): $($options['whitelist'])"
 } else {
     Write-Host 'No controller yet, so direct IP access is OFF.' -ForegroundColor Yellow
 }
