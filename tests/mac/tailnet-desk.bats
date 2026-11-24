@@ -770,7 +770,7 @@ port_listening() {
 @test "td_port_listening waits for RustDesk to open the port" {
   LISTEN_AFTER=3 port_listening 21118
   [ "$status" -eq 0 ]
-  [ "$output" = 'Waiting up to 30 seconds for RustDesk to listen on TCP 21118 ...' ]
+  [ "$output" = '  Waiting up to 30 seconds for RustDesk to listen on TCP 21118 ...' ]
   [ "$(grep -c '^sleep 2$' "$STUB_LOG")" -eq 2 ]
 }
 
@@ -778,4 +778,17 @@ port_listening() {
   port_listening 21118 10
   [ "$status" -eq 1 ]
   [ "$(grep -c '^sleep 2$' "$STUB_LOG")" -eq 5 ]
+}
+
+@test "td_port_listening waits TD_LISTEN_WAIT seconds by default, and looks once with no time to wait" {
+  td_sh '[ "$TD_LISTEN_WAIT" -eq 30 ]'
+  [ "$status" -eq 0 ]
+  port_listening 21118
+  [ "$status" -eq 1 ]
+  [ "$(grep -c '^sleep 2$' "$STUB_LOG")" -eq 15 ]
+  port_listening 21118 0
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  [ "$(grep -c '^lsof' "$STUB_LOG")" -eq 1 ]
+  ! grep -q '^sleep' "$STUB_LOG" || false
 }

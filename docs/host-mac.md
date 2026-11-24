@@ -323,6 +323,9 @@ Host checks
 All host checks passed. Now test from the controller: test-from-controller.sh on a Mac, test-from-controller.ps1 on a Windows PC.
 ```
 
+Right after direct IP access is turned on, a line `Waiting up to 30 seconds for RustDesk to listen on TCP 21118 ...`
+can appear among the checks: RustDesk takes a few seconds to open its port, and the check waits for it.
+
 With the [firewall step](#optional-limit-rustdesk-to-tailscale-in-the-firewall) on, the NOTE line is a PASS line for
 the firewall instead.
 
