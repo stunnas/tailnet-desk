@@ -4,10 +4,11 @@ Sets up this Windows PC as a RustDesk host that only answers over Tailscale.
 
 .DESCRIPTION
 Run it on the HOST, the PC that will be controlled, in PowerShell as administrator. It is safe to run again: each
-step skips what is already done, and a run without -ControllerIp keeps the controllers already whitelisted.
+step skips what is already done. Without -ControllerIp it asks for the controllers' addresses in step 4, and
+pressing Enter there keeps the controllers already whitelisted.
 
   1. Installs Tailscale (pinned version) from Tailscale's own installer if it's missing, after checking the file's
-     SHA-256 and its publisher signature (Tailscale Inc.), then stops until you've signed in.
+     SHA-256 and its publisher signature (Tailscale Inc.), then waits up to 10 minutes for you to sign in.
   2. Installs RustDesk (pinned version) from its official GitHub release after checking the file's SHA-256 and its
      publisher signature (PURSLANE), then stops it using RustDesk's public ID and relay servers. An existing
      Tailscale or RustDesk is kept once its program passes the same signature check.
@@ -15,7 +16,7 @@ step skips what is already done, and a run without -ControllerIp keeps the contr
      is never on while the firewall still lets every network in.
   4. Sets RustDesk's security settings: no public ID or relay server, permanent password only, sessions start on the
      password without anyone clicking Accept, no LAN discovery, and direct IP access with only your controllers
-     whitelisted (off until there is a controller).
+     whitelisted (off until there is a controller). Asks for the controllers' addresses unless -ControllerIp gave them.
   5. Sets the PC to never sleep while plugged in (skip with -KeepSleep).
   6. Runs test-host.ps1 and lists what you still do by hand: the password and two-factor.
 
@@ -23,7 +24,8 @@ It never sets or shows a password.
 
 .PARAMETER ControllerIp
 The Tailscale address (100.x.y.z) of each device allowed to connect, for example the laptop you'll sit at.
-Never this PC's own address. Leave it out on the first run if no controller is on Tailscale yet.
+Never this PC's own address. Leave it out and the script asks for it in step 4 instead; give it to run the script
+without that question.
 
 .PARAMETER KeepSleep
 Don't change the sleep setting.
@@ -49,12 +51,9 @@ $null = Resolve-ControllerIp -ControllerIp $ControllerIp
 
 Write-Step 'Step 1 of 6: Tailscale'
 Install-Tailscale
-$myIp = Get-TailscaleIPv4
+$myIp = Wait-TailscaleIPv4
 if (-not $myIp) {
-    Write-Host 'Tailscale is installed but not signed in (or not running).' -ForegroundColor Yellow
-    Write-Host 'Click the Tailscale icon in the system tray (near the clock), choose Log in, and sign in. If the icon'
-    Write-Host "isn't there, open Tailscale from the Start menu first."
-    Write-Host 'Then run this script again.'
+    Write-Host "Tailscale still isn't signed in. Sign in, then run this script again. If Tailscale says it's stopped, restart the PC first." -ForegroundColor Yellow
     exit 2
 }
 Write-Host "Tailscale is signed in. This PC's (the host's) Tailscale address: $myIp"
@@ -79,10 +78,16 @@ Write-Host "RustDesk's firewall rules now apply to the $($setting.AdapterName) a
 
 Write-Step 'Step 4 of 6: RustDesk security settings'
 $current = Get-RustDeskOption -Exe $exe -Key @('whitelist')
+$source = 'from -ControllerIp'
+if ($given.Count -eq 0) {
+    $kept = @(Resolve-ControllerIp -CurrentWhitelist $current['whitelist'] -OwnIp $myIp)
+    $given = @(Read-ControllerIp -OwnIp $myIp -Kept $kept)
+    $source = 'typed in'
+}
 $controllers = @(Resolve-ControllerIp -ControllerIp $given -CurrentWhitelist $current['whitelist'] -OwnIp $myIp)
 $options = Get-HostOption -ControllerIp $controllers
 if ($controllers.Count -gt 0) {
-    $source = if ($given.Count -gt 0) { 'from -ControllerIp' } else { 'kept from before' }
+    if ($given.Count -eq 0) { $source = 'kept from before' }
     Write-Host "Direct IP access: on. Whitelist ($source): $($options['whitelist'])"
 } else {
     Write-Host 'No controller yet, so direct IP access is OFF.' -ForegroundColor Yellow
@@ -94,7 +99,7 @@ if ($given.Count -eq 0) {
         if ($change.Removed) {
             Write-Host '  They are removed from the whitelist now.' -ForegroundColor Yellow
         } else {
-            Write-Host '  They stay in RustDesk until you run this again with -ControllerIp, and the check below fails them.' -ForegroundColor Yellow
+            Write-Host '  They stay in RustDesk until you run this again and type the controller''s address, and the check below fails them.' -ForegroundColor Yellow
         }
     }
 }
@@ -110,7 +115,7 @@ if ($KeepSleep) {
 }
 
 Write-Step 'Step 6 of 6: Check'
-# Only addresses given on this run are passed on; otherwise the check judges the whitelist on its own.
+# Only addresses given or typed on this run are passed on; otherwise the check judges the whitelist on its own.
 & (Join-Path $PSScriptRoot 'test-host.ps1') -ControllerIp $given
 $checksPassed = ($LASTEXITCODE -eq 0)
 
@@ -122,8 +127,8 @@ Write-Host '     Use a random 20+ character password from your password manager.
 Write-Host '  2. Two-factor authentication: turn it on and scan the QR code with your authenticator app.'
 Write-Host '     Never photograph or share the QR code: it is the secret.'
 if ($controllers.Count -eq 0) {
-    Write-Host '  3. When the controller is on Tailscale, run this again with its address, for example:'
-    Write-Host '     .\install-host.ps1 -ControllerIp 100.64.0.11   (use the controller''s real 100.x address)'
+    Write-Host '  3. When the controller is on Tailscale, run .\install-host.ps1 again and type its 100.x address'
+    Write-Host '     when it asks.'
 }
 Write-Host 'On each controller, leave "Remember password" off, and only trust a controller for two-factor if it stays'
 Write-Host 'locked: whoever unlocks a trusted controller needs only the password.'
