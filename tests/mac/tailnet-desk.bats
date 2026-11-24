@@ -9,6 +9,9 @@
 setup() {
   ROOT="$BATS_TEST_DIRNAME/../.."
   LIB="$ROOT/scripts/mac/tailnet-desk.sh"
+  # The pinned versions, read from the library, so a version bump changes only the pins and not these tests.
+  RD_VERSION=$(sed -n "s/^TD_RUSTDESK_VERSION='\(.*\)'.*/\1/p" "$LIB")
+  TS_VERSION=$(sed -n "s/^TD_TAILSCALE_VERSION='\(.*\)'.*/\1/p" "$LIB")
 }
 
 # Runs a library function in /bin/bash with the scripts' error settings.
@@ -393,10 +396,10 @@ STUB
 
 @test "td_rustdesk_asset names the right disk image and hash for each Mac type" {
   td td_rustdesk_asset arm64
-  [ "$(sed -n 1p <<< "$output")" = rustdesk-1.5.3-aarch64.dmg ]
+  [ "$(sed -n 1p <<< "$output")" = "rustdesk-$RD_VERSION-aarch64.dmg" ]
   [ "$(sed -n 2p <<< "$output" | wc -c | tr -d ' ')" -eq 65 ]
   td td_rustdesk_asset x86_64
-  [ "$(sed -n 1p <<< "$output")" = rustdesk-1.5.3-x86_64.dmg ]
+  [ "$(sed -n 1p <<< "$output")" = "rustdesk-$RD_VERSION-x86_64.dmg" ]
   [ "$(sed -n 2p <<< "$output" | wc -c | tr -d ' ')" -eq 65 ]
   td td_rustdesk_asset sparc
   [ "$status" -eq 2 ]
@@ -418,7 +421,8 @@ STUB
 
 @test "td_tailscale_pkg_name names the pinned installer, and its SHA-256 is pinned" {
   td td_tailscale_pkg_name
-  [ "$output" = Tailscale-1.104.4-macos.pkg ]
+  [ -n "$TS_VERSION" ]
+  [ "$output" = "Tailscale-$TS_VERSION-macos.pkg" ]
   td_sh 'printf "%s" "$TD_TAILSCALE_PKG_SHA256"'
   [[ "$output" =~ ^[0-9a-f]{64}$ ]] || false
 }
@@ -431,7 +435,7 @@ STUB
 # pkgutil --check-signature's output for Tailscale's installer, with the fingerprints left out.
 pkgutil_output() {
   printf '%s\n' \
-    'Package "Tailscale-1.104.4-macos.pkg":' \
+    "Package \"Tailscale-$TS_VERSION-macos.pkg\":" \
     "   Status: ${1:-signed by a developer certificate issued by Apple for distribution}" \
     "   Notarization: ${2:-trusted by the Apple notary service}" \
     '   Certificate Chain:' \
@@ -569,7 +573,7 @@ good_sha() { printf '%s' "$CURL_BODY" | /usr/bin/shasum -a 256 | awk '{ print $1
   export WANT_SHA=$(good_sha) PKGUTIL_OUT="$(pkgutil_output)"
   run_installer td_install_tailscale
   [ "$status" -eq 0 ]
-  grep -q "^sudo /usr/sbin/installer -pkg .*/Tailscale-1.104.4-macos.pkg -target /" "$STUB_LOG"
+  grep -q "^sudo /usr/sbin/installer -pkg .*/Tailscale-$TS_VERSION-macos.pkg -target /" "$STUB_LOG"
   grep -q "^codesign .*W5364U7YZB.* $T/Tailscale.app" "$STUB_LOG"
   [ -z "$(ls -A "$T/tmp")" ]
 }

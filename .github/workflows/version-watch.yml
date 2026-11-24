@@ -1,9 +1,19 @@
 # Version watch: every Monday, and on demand, compares the RustDesk and Tailscale versions the install scripts pin
-# with their releases on GitHub, using tools/check-versions.sh (its header says when a bump is due). A due bump fails
-# the run, with the report in the run's summary: GitHub emails a failed scheduled run to whoever last changed this
-# schedule. It has read-only permissions and never changes code: a bump needs new SHA-256 values and a re-test, which
-# stay by hand. Kept apart from CI, whose results never depend on the network. GitHub turns off the schedule in a
-# public repo after 60 days without activity: turn the workflow back on in the Actions tab, then run it by hand.
+# with their releases on GitHub, using tools/check-versions.sh (its header says when a bump is due). When one is due,
+# it opens a PR that bumps the pin, like Dependabot does for the actions, with links to each new version's notes.
+#
+# Two jobs, so the write token never meets outside data or downloaded files:
+#   watch    read-only. Checks the comparison on made-up releases, looks up the real ones, and for a due bump
+#            downloads the installers and hashes them, each checked against the hash its source publishes
+#            (tools/prepare-bump.sh).
+#   propose  the only job with write scopes, with the built-in token and no stored secrets. It runs only checkout and
+#            the runner's own shell, git and gh: none of the repo's scripts and no downloaded code. It takes the
+#            watch job's values through env:, refuses any value that isn't a version, date or SHA-256, edits only the
+#            pin lines named below, checks that nothing else changed, pushes its own bump/ branch and opens a PR. It
+#            never pushes to main, merges or approves.
+# A PR opened with the built-in token doesn't start CI: close and reopen it to start CI, then review it as usual.
+# Kept apart from CI, whose results never depend on the network. GitHub turns off the schedule in a public repo after
+# 60 days without activity: turn the workflow back on in the Actions tab, then run it by hand.
 name: Version watch
 
 on:
@@ -21,10 +31,23 @@ concurrency:
 jobs:
   watch:
     name: Compare pinned versions with the releases
-    runs-on: ubuntu-latest # gh comes with the runner; nothing is downloaded
-    timeout-minutes: 5
+    runs-on: ubuntu-latest # gh, curl and shasum come with the runner; installers are downloaded only to be hashed
+    timeout-minutes: 10
     permissions:
       contents: read # check out the scripts whose pins are read; the release lookups need nothing more
+    outputs:
+      due: ${{ steps.compare.outputs.due }}
+      rustdesk_version: ${{ steps.prepare.outputs.rustdesk_version }}
+      rustdesk_date: ${{ steps.prepare.outputs.rustdesk_date }}
+      rustdesk_covered: ${{ steps.prepare.outputs.rustdesk_covered }}
+      rustdesk_exe_sha256: ${{ steps.prepare.outputs.rustdesk_exe_sha256 }}
+      rustdesk_dmg_arm64_sha256: ${{ steps.prepare.outputs.rustdesk_dmg_arm64_sha256 }}
+      rustdesk_dmg_x86_64_sha256: ${{ steps.prepare.outputs.rustdesk_dmg_x86_64_sha256 }}
+      tailscale_version: ${{ steps.prepare.outputs.tailscale_version }}
+      tailscale_date: ${{ steps.prepare.outputs.tailscale_date }}
+      tailscale_covered: ${{ steps.prepare.outputs.tailscale_covered }}
+      tailscale_msi_sha256: ${{ steps.prepare.outputs.tailscale_msi_sha256 }}
+      tailscale_pkg_sha256: ${{ steps.prepare.outputs.tailscale_pkg_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -32,15 +55,19 @@ jobs:
       - name: Check the comparison on known releases first
         run: |
           # A made-up release far newer than the pins and older than two weeks must make a bump due (exit 1, with
-          # "Bump due" in the report, so a crash can't pass for it), and releases older than the pins must not
-          # (exit 0), so a run that reports nothing really did compare.
+          # "Bump due" in the report and a targets line, so a crash can't pass for it), and releases older than the
+          # pins must not (exit 0), so a run that reports nothing really did compare.
           printf '99.0.0 2000-01-01T00:00:00Z\n' > "$RUNNER_TEMP/due.txt"
           printf '0.0.1 2000-01-01T00:00:00Z\n' > "$RUNNER_TEMP/old.txt"
-          code=0; tools/check-versions.sh "$RUNNER_TEMP/due.txt" "$RUNNER_TEMP/old.txt" > "$RUNNER_TEMP/due.md" || code=$?
+          code=0
+          TARGETS_FILE="$RUNNER_TEMP/due-targets.txt" tools/check-versions.sh "$RUNNER_TEMP/due.txt" "$RUNNER_TEMP/old.txt" \
+            > "$RUNNER_TEMP/due.md" || code=$?
           [ "$code" -eq 1 ] || { echo "Expected a bump due (exit 1), got exit $code" >&2; exit 1; }
-          grep -qF '| RustDesk |' "$RUNNER_TEMP/due.md" && grep -qF '**Bump due**: to 99.0.0' "$RUNNER_TEMP/due.md"
+          grep -qF '**Bump due**: to 99.0.0' "$RUNNER_TEMP/due.md"
+          grep -qx 'RustDesk 99.0.0 2000-01-01 99.0.0:2000-01-01' "$RUNNER_TEMP/due-targets.txt"
           tools/check-versions.sh "$RUNNER_TEMP/old.txt" "$RUNNER_TEMP/old.txt" > /dev/null
       - name: Look up the releases and compare
+        id: compare
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -54,9 +81,192 @@ jobs:
           releases rustdesk/rustdesk "$RUNNER_TEMP/rustdesk.txt"
           releases tailscale/tailscale "$RUNNER_TEMP/tailscale.txt"
           code=0
-          tools/check-versions.sh "$RUNNER_TEMP/rustdesk.txt" "$RUNNER_TEMP/tailscale.txt" > "$RUNNER_TEMP/report.md" ||
+          TARGETS_FILE="$RUNNER_TEMP/targets.txt" \
+            tools/check-versions.sh "$RUNNER_TEMP/rustdesk.txt" "$RUNNER_TEMP/tailscale.txt" > "$RUNNER_TEMP/report.md" ||
             code=$?
           tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/report.md"
-          if [ "$code" -eq 1 ]; then echo '::error::A pinned version is due a bump: see the report in the summary.'; fi
-          if [ "$code" -ge 2 ]; then echo '::error::The comparison stopped: see this step'"'"'s log for why.'; fi
-          exit "$code"
+          if [ "$code" -ge 2 ]; then echo '::error::The comparison stopped: see this step'"'"'s log for why.'; exit "$code"; fi
+          echo "due=$code" >> "$GITHUB_OUTPUT"
+      - name: Download and hash the new installers
+        id: prepare
+        if: steps.compare.outputs.due == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tools/prepare-bump.sh "$RUNNER_TEMP/targets.txt" "$RUNNER_TEMP/downloads" > "$RUNNER_TEMP/values.txt"
+          tee -a "$GITHUB_OUTPUT" < "$RUNNER_TEMP/values.txt"
+
+  propose:
+    name: Open a PR that bumps the pins
+    needs: watch
+    if: needs.watch.outputs.due == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # push the bump/ branch
+      pull-requests: write # open the PR
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Edit the pins and check nothing else changed
+        id: edit
+        env:
+          RUSTDESK_VERSION: ${{ needs.watch.outputs.rustdesk_version }}
+          RUSTDESK_DATE: ${{ needs.watch.outputs.rustdesk_date }}
+          RUSTDESK_COVERED: ${{ needs.watch.outputs.rustdesk_covered }}
+          RUSTDESK_EXE_SHA256: ${{ needs.watch.outputs.rustdesk_exe_sha256 }}
+          RUSTDESK_DMG_ARM64_SHA256: ${{ needs.watch.outputs.rustdesk_dmg_arm64_sha256 }}
+          RUSTDESK_DMG_X86_64_SHA256: ${{ needs.watch.outputs.rustdesk_dmg_x86_64_sha256 }}
+          TAILSCALE_VERSION: ${{ needs.watch.outputs.tailscale_version }}
+          TAILSCALE_DATE: ${{ needs.watch.outputs.tailscale_date }}
+          TAILSCALE_COVERED: ${{ needs.watch.outputs.tailscale_covered }}
+          TAILSCALE_MSI_SHA256: ${{ needs.watch.outputs.tailscale_msi_sha256 }}
+          TAILSCALE_PKG_SHA256: ${{ needs.watch.outputs.tailscale_pkg_sha256 }}
+          BUMP_OUT: ${{ runner.temp }}
+        run: |
+          # BEGIN pin-edit (tests/tools/version-watch.bats runs this block on copies of the two scripts)
+          set -euo pipefail
+          mac=scripts/mac/tailnet-desk.sh
+          win=scripts/windows/tailnet-desk.psm1
+          v='[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}'
+          d='[0-9]{4}-[0-9]{2}-[0-9]{2}'
+          h='[0-9a-f]{64}'
+          need() { [[ $2 =~ ^$3$ ]] || { echo "::error::Refused $1: not the expected form" >&2; exit 1; }; }
+          # Edits file $1 with the sed expressions after it, keeping the file's mode and line endings.
+          edit() { local f=$1; shift; sed -E "$@" "$f" > "$f.new"; cat "$f.new" > "$f"; rm "$f.new"; }
+          # The single-quoted value of pin $2 in file $1.
+          pinned() { sed -n -E "s/^ *$2 *= *'([^']*)'.*/\1/p" "$1"; }
+          title=() parts=() body="$BUMP_OUT/bump-body.md"
+          # Fails unless pin $2 in file $1 now holds $3.
+          holds() { [ "$(pinned "$1" "$2")" = "$3" ] || { echo "::error::$2 in $1 didn't take the new value" >&2; exit 1; }; }
+          # Fails unless file $1 has a line matching $2 (a release-date comment that took its new date).
+          has() { grep -q -E "$2" "$1" || { echo "::error::A release-date comment in $1 didn't take the new date" >&2; exit 1; }; }
+          {
+            echo 'Opened by the Version watch workflow. It bumps each pin below to the newest release that is at least'
+            echo 'two weeks old.'
+          } > "$body"
+          # Writes a notes table: $1 is the release page URL before the version, $2 an extra link, $3 the version:date list.
+          notes() {
+            local item items ver day
+            echo; echo '| Version | Released | Notes |'; echo '|---|---|---|'
+            IFS=, read -r -a items <<< "$3"
+            for item in "${items[@]}"; do
+              ver=${item%%:*}; day=${item#*:}
+              echo "| $ver | $day | [Release]($1$ver)$2 |"
+            done
+          }
+          if [ -n "${RUSTDESK_VERSION-}" ]; then
+            need 'the RustDesk version' "$RUSTDESK_VERSION" "$v"
+            need 'the RustDesk date' "$RUSTDESK_DATE" "$d"
+            need 'the RustDesk release list' "$RUSTDESK_COVERED" "$v:$d(,$v:$d)*"
+            need 'the RustDesk exe hash' "$RUSTDESK_EXE_SHA256" "$h"
+            need 'the RustDesk ARM64 disk image hash' "$RUSTDESK_DMG_ARM64_SHA256" "$h"
+            need 'the RustDesk x86_64 disk image hash' "$RUSTDESK_DMG_X86_64_SHA256" "$h"
+            old=$(pinned "$mac" TD_RUSTDESK_VERSION)
+            edit "$mac" \
+              -e "s/^(TD_RUSTDESK_VERSION=')[^']*'/\1$RUSTDESK_VERSION'/" \
+              -e "s/^(TD_RUSTDESK_SHA256_ARM64=')[^']*'/\1$RUSTDESK_DMG_ARM64_SHA256'/" \
+              -e "s/^(TD_RUSTDESK_SHA256_X86_64=')[^']*'/\1$RUSTDESK_DMG_X86_64_SHA256'/" \
+              -e "s/^(# Released )$d(\. Bump together with both SHA-256 values)/\1$RUSTDESK_DATE\2/"
+            edit "$win" \
+              -e "s/^(    RustDeskVersion = ')[^']*'/\1$RUSTDESK_VERSION'/" \
+              -e "s/^(    RustDeskSha256  = ')[^']*'/\1$RUSTDESK_EXE_SHA256'/" \
+              -e "s/^(    # Released )$d(\. Bump together with RustDeskSha256)/\1$RUSTDESK_DATE\2/"
+            holds "$mac" TD_RUSTDESK_VERSION "$RUSTDESK_VERSION"; holds "$win" RustDeskVersion "$RUSTDESK_VERSION"
+            holds "$mac" TD_RUSTDESK_SHA256_ARM64 "$RUSTDESK_DMG_ARM64_SHA256"
+            holds "$mac" TD_RUSTDESK_SHA256_X86_64 "$RUSTDESK_DMG_X86_64_SHA256"
+            holds "$win" RustDeskSha256 "$RUSTDESK_EXE_SHA256"
+            has "$mac" "^# Released $RUSTDESK_DATE\. Bump together with both SHA-256 values"
+            has "$win" "^    # Released $RUSTDESK_DATE\. Bump together with RustDeskSha256"
+            title+=("RustDesk to $RUSTDESK_VERSION"); parts+=("rustdesk-$RUSTDESK_VERSION")
+            {
+              echo; echo "## RustDesk $old to $RUSTDESK_VERSION"
+              echo "The Windows installer and both Mac disk images were downloaded from RustDesk's GitHub release and"
+              echo "each matched the SHA-256 digest GitHub shows for it."
+              notes https://github.com/rustdesk/rustdesk/releases/tag/ '' "$RUSTDESK_COVERED"
+            } >> "$body"
+          fi
+          if [ -n "${TAILSCALE_VERSION-}" ]; then
+            need 'the Tailscale version' "$TAILSCALE_VERSION" "$v"
+            need 'the Tailscale date' "$TAILSCALE_DATE" "$d"
+            need 'the Tailscale release list' "$TAILSCALE_COVERED" "$v:$d(,$v:$d)*"
+            need 'the Tailscale MSI hash' "$TAILSCALE_MSI_SHA256" "$h"
+            need 'the Tailscale pkg hash' "$TAILSCALE_PKG_SHA256" "$h"
+            old=$(pinned "$mac" TD_TAILSCALE_VERSION)
+            edit "$mac" \
+              -e "s/^(TD_TAILSCALE_VERSION=')[^']*'/\1$TAILSCALE_VERSION'/" \
+              -e "s/^(TD_TAILSCALE_PKG_SHA256=')[^']*'/\1$TAILSCALE_PKG_SHA256'/" \
+              -e "s/^(# Tailscale's Standalone installer from its own package server\. Released )$d:/\1$TAILSCALE_DATE:/"
+            edit "$win" \
+              -e "s/^(    TailscaleVersion   = ')[^']*'/\1$TAILSCALE_VERSION'/" \
+              -e "s/^(    TailscaleMsiSha256 = ')[^']*'/\1$TAILSCALE_MSI_SHA256'/" \
+              -e "s/^(    # Tailscale's own Windows installer \(MSI\) from its package server, released )$d:/\1$TAILSCALE_DATE:/"
+            holds "$mac" TD_TAILSCALE_VERSION "$TAILSCALE_VERSION"; holds "$win" TailscaleVersion "$TAILSCALE_VERSION"
+            holds "$mac" TD_TAILSCALE_PKG_SHA256 "$TAILSCALE_PKG_SHA256"; holds "$win" TailscaleMsiSha256 "$TAILSCALE_MSI_SHA256"
+            has "$mac" "^# Tailscale's Standalone installer from its own package server\. Released $TAILSCALE_DATE:"
+            has "$win" "^    # Tailscale's own Windows installer \(MSI\) from its package server, released $TAILSCALE_DATE:"
+            title+=("Tailscale to $TAILSCALE_VERSION"); parts+=("tailscale-$TAILSCALE_VERSION")
+            {
+              echo; echo "## Tailscale $old to $TAILSCALE_VERSION"
+              echo "The Windows MSI and the Mac installer were downloaded from Tailscale's package server and each"
+              echo "matched the .sha256 file the server publishes next to it. Tailscale's GitHub releases point to its"
+              echo "changelog for the notes."
+              notes https://github.com/tailscale/tailscale/releases/tag/v ' · [Changelog](https://tailscale.com/changelog)' "$TAILSCALE_COVERED"
+            } >> "$body"
+          fi
+          [ "${#title[@]}" -gt 0 ] || { echo '::error::Nothing to bump' >&2; exit 1; }
+          # Only these lines may change, and each file keeps its number of lines; each edited pin was checked above.
+          allowed="^[-+](TD_RUSTDESK_VERSION='$v'|TD_RUSTDESK_SHA256_(ARM64|X86_64)='$h'|TD_TAILSCALE_VERSION='$v'"
+          allowed+="|TD_TAILSCALE_PKG_SHA256='$h'|# Released $d\. Bump together with both SHA-256 values, .*"
+          allowed+="|# Tailscale's Standalone installer from its own package server\. Released $d: .*"
+          allowed+="|    RustDeskVersion = '$v'|    RustDeskSha256  = '$h'|    TailscaleVersion   = '$v'"
+          allowed+="|    TailscaleMsiSha256 = '$h'|    # Released $d\. Bump together with RustDeskSha256, .*"
+          allowed+="|    # Tailscale's own Windows installer \(MSI\) from its package server, released $d: .*)"$'\r?$'
+          files=$(git diff --name-only)
+          [ -n "$files" ] || { echo '::error::The edit changed nothing' >&2; exit 1; }
+          while IFS= read -r f; do
+            [ "$f" = "$mac" ] || [ "$f" = "$win" ] || { echo "::error::Changed a file outside the pins: $f" >&2; exit 1; }
+          done <<< "$files"
+          if git diff -U0 | grep -E '^[-+]' | grep -v -E '^(\+\+\+|---) ' | grep -v -E "$allowed" | grep -q .; then
+            echo '::error::Changed a line that is not a pin line' >&2; git diff >&2; exit 1
+          fi
+          [ "$(git diff -U0 | grep -c -E '^\+[^+]')" -eq "$(git diff -U0 | grep -c -E '^-[^-]')" ] ||
+            { echo '::error::The edit added or removed lines' >&2; exit 1; }
+          {
+            echo
+            echo '## Before merging'
+            echo '- [ ] Close and reopen this PR: a PR opened by the workflow token does not start CI by itself.'
+            echo '- [ ] Review the change and the notes above.'
+            echo '- [ ] Install on a real machine. The runner checked the hashes; the install scripts check the'
+            echo '      signatures (Authenticode on Windows, Apple team and notarization on the Mac) on every install.'
+            echo "- [ ] Update the README's Status."
+          } >> "$body"
+          joined=$(printf '%s and ' "${title[@]}"); joined=${joined% and }
+          branch=$(IFS=-; echo "bump/${parts[*]}")
+          echo "title=chore(deps): bump $joined" >> "${GITHUB_OUTPUT:-/dev/null}"
+          echo "branch=$branch" >> "${GITHUB_OUTPUT:-/dev/null}"
+          # END pin-edit
+      - name: Push the branch and open the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: ${{ steps.edit.outputs.title }}
+          BRANCH: ${{ steps.edit.outputs.branch }}
+          BODY: ${{ runner.temp }}/bump-body.md
+        run: |
+          [[ $BRANCH =~ ^bump/(rustdesk-[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4})?-?(tailscale-[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4})?$ ]] ||
+            { echo '::error::Refused the branch name' >&2; exit 1; }
+          [[ $TITLE =~ ^chore\(deps\):\ bump\ [A-Za-z0-9.\ ]+$ ]] || { echo '::error::Refused the title' >&2; exit 1; }
+          branch=$BRANCH
+          if [ -n "$(git ls-remote --heads origin "refs/heads/$branch")" ]; then
+            echo "The branch $branch already exists, so this bump was already proposed." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git switch -c "$branch"
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -q -am "$TITLE"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push -q origin "HEAD:refs/heads/$branch"
+          gh pr create --base main --head "$branch" --title "$TITLE" --body-file "$BODY" | tee -a "$GITHUB_STEP_SUMMARY"
