@@ -130,7 +130,7 @@ The script does the manual path's steps except the ones that need you: allowing 
 signing in, turning off key expiry, allowing RustDesk's service and its two permissions, choosing the password and scanning the
 two-factor QR code. It waits while you sign in to Tailscale, and asks for the controller's address. It's safe to
 run more than once: each run skips what's already done, and pressing Return at the address question keeps the
-controllers already on the whitelist.
+valid controllers already on the whitelist.
 
 ### 1. Get the scripts
 
@@ -215,7 +215,7 @@ Check by hand that Screen & System Audio Recording and Accessibility both list R
 
 == Step 4 of 6: RustDesk security settings
 The controller's address is its 100.x address in the Tailscale admin console (not this Mac's).
-Type the controller's Tailscale address, or press Enter to skip for now: 100.64.0.11
+Type the controller's Tailscale address (commas between several), or press Return to skip for now: 100.64.0.11
 Direct IP access: on. Whitelist (typed in): 100.64.0.11
 
 == Step 5 of 6: Sleep

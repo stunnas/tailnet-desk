@@ -860,12 +860,24 @@ read_controllers() {
   ANSWERS=$' 100.64.0.11 \n' read_controllers 100.64.0.10
   [ "$status" -eq 0 ]
   [ "$output" = 100.64.0.11 ]
-  grep -q "press Enter to skip for now: $" "$ERR"
+  grep -q "press Return to skip for now: $" "$ERR"
   ANSWERS=$'100.64.0.11, 100.64.0.12,100.64.0.11\n' read_controllers 100.64.0.10
   [ "$output" = $'100.64.0.11\n100.64.0.12' ]
 }
 
-@test "td_read_controllers gives nothing when Enter is pressed or the input ends" {
+@test "td_read_controllers keeps a last answer typed without Return" {
+  ANSWERS='100.64.0.11' read_controllers 100.64.0.10
+  [ "$status" -eq 0 ]
+  [ "$output" = 100.64.0.11 ]
+}
+
+@test "td_choose_controllers gives several addresses comma-separated on line 2 and one per line after" {
+  TYPED=$'100.64.0.11\n100.64.0.12' choose_controllers '' '' 100.64.0.10
+  [ "$status" -eq 0 ]
+  [ "$output" = $'typed in\n100.64.0.11,100.64.0.12\n100.64.0.11\n100.64.0.12' ]
+}
+
+@test "td_read_controllers gives nothing when Return is pressed or the input ends" {
   ANSWERS=$'\n' read_controllers 100.64.0.10
   [ "$status" -eq 0 ]
   [ -z "$output" ]
@@ -878,8 +890,8 @@ read_controllers() {
   ANSWERS=$'192.168.0.10\n100.64.0.0/10\n100.64.0.11\n' read_controllers 100.64.0.10 # check-private-data: allow
   [ "$status" -eq 0 ]
   [ "$output" = 100.64.0.11 ]
-  [ "$(grep -o 'press Enter to skip for now: ' "$ERR" | wc -l)" -eq 3 ]
-  grep -q "Not a Tailscale address: '192.168.0.10'.* Type it again, or press Enter to skip.$" "$ERR" # check-private-data: allow
+  [ "$(grep -o 'press Return to skip for now: ' "$ERR" | wc -l)" -eq 3 ]
+  grep -q "Not a Tailscale address: '192.168.0.10'.* Type it again, or press Return to skip.$" "$ERR" # check-private-data: allow
 }
 
 @test "td_read_controllers asks again after this Mac's own address" {
@@ -889,12 +901,12 @@ read_controllers() {
   grep -q "'100.64.0.10' is this Mac's own address" "$ERR"
 }
 
-@test "td_read_controllers names the controllers already whitelisted, and Enter keeps them" {
+@test "td_read_controllers names the controllers already whitelisted, and Return keeps them" {
   ANSWERS=$'\n' read_controllers 100.64.0.10 100.64.0.11 100.64.0.12
   [ "$status" -eq 0 ]
   [ -z "$output" ]
   grep -q '^Controllers already on the whitelist: 100.64.0.11,100.64.0.12$' "$ERR"
-  grep -q '^Press Enter to keep them, or type the controller addresses to use instead: $' "$ERR"
+  grep -q '^Press Return to keep them, or type the controller addresses to use instead (commas between several): $' "$ERR"
 }
 
 # Runs td_choose_controllers with td_read_controllers replaced: it logs its arguments and prints $TYPED.
@@ -911,7 +923,7 @@ choose_controllers() {
 @test "td_choose_controllers uses --controller-ip without asking" {
   choose_controllers '100.64.0.11' '100.64.0.12' 100.64.0.10
   [ "$status" -eq 0 ]
-  [ "$output" = $'from --controller-ip\n100.64.0.11' ]
+  [ "$output" = $'from --controller-ip\n100.64.0.11\n100.64.0.11' ]
   [ ! -s "$STUB_LOG" ]
 }
 
@@ -924,26 +936,26 @@ choose_controllers() {
 @test "td_choose_controllers uses typed addresses in place of the whitelist" {
   TYPED=100.64.0.12 choose_controllers '' '100.64.0.11' 100.64.0.10
   [ "$status" -eq 0 ]
-  [ "$output" = $'typed in\n100.64.0.12' ]
+  [ "$output" = $'typed in\n100.64.0.12\n100.64.0.12' ]
 }
 
-@test "td_choose_controllers keeps the valid controllers already whitelisted on Enter, and offers only those" {
+@test "td_choose_controllers keeps the valid controllers already whitelisted on Return, and offers only those" {
   choose_controllers '' '100.64.0.11,100.64.0.0/10,100.64.0.10' 100.64.0.10
   [ "$status" -eq 0 ]
-  [ "$output" = $'kept from before\n100.64.0.11' ]
+  [ "$output" = $'kept from before\n\n100.64.0.11' ]
   [ "$(cat "$STUB_LOG")" = 'asked 100.64.0.10 100.64.0.11' ]
 }
 
-@test "td_choose_controllers gives no controllers when there are none to keep and Enter is pressed" {
+@test "td_choose_controllers gives no controllers when there are none to keep and Return is pressed" {
   choose_controllers '' '' 100.64.0.10
   [ "$status" -eq 0 ]
-  [ "$output" = 'kept from before' ]
+  [ "$output" = 'kept from before' ]   # bats drops the empty line 2 at the end
   [ "$(cat "$STUB_LOG")" = 'asked 100.64.0.10' ]
 }
 
-@test "td_read_controllers replaces the controllers already whitelisted with typed ones, and says Enter keeps them after a bad address" {
+@test "td_read_controllers replaces the controllers already whitelisted with typed ones, and says Return keeps them after a bad address" {
   ANSWERS=$'bad\n100.64.0.12\n' read_controllers 100.64.0.10 100.64.0.11
   [ "$status" -eq 0 ]
   [ "$output" = 100.64.0.12 ]
-  grep -q "Not a Tailscale address: 'bad'.* Type it again, or press Enter to keep them.$" "$ERR"
+  grep -q "Not a Tailscale address: 'bad'.* Type it again, or press Return to keep them.$" "$ERR"
 }

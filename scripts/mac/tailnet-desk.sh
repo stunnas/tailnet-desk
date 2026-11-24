@@ -21,7 +21,7 @@
 
 TD_DIRECT_PORT=21118                        # RustDesk direct IP access (TCP)
 TD_LISTEN_WAIT=30                           # seconds the check waits for RustDesk to open TD_DIRECT_PORT
-TD_SIGNIN_WAIT=600                          # seconds install-host.sh waits for the Tailscale sign-in (docs/host-mac.md says 10 minutes)
+TD_SIGNIN_WAIT=600                          # seconds install-host.sh waits for the Tailscale sign-in (its header and docs/host-mac.md say 10 minutes)
 TD_RUSTDESK_REPO='rustdesk/rustdesk'        # the official GitHub repo; downloads come only from its releases
 # Released 2026-11-09. Bump together with both SHA-256 values, then re-test and update the README's Status.
 TD_RUSTDESK_VERSION='1.5.3'
@@ -374,7 +374,7 @@ td_tailscale_ipv4() {
   if td_is_tailscale_ipv4 "$out"; then echo "$out"; fi
 }
 
-# This Mac's Tailscale address, waiting up to $1 seconds (default TD_SIGNIN_WAIT, looking every 3 seconds) for you to
+# This Mac's Tailscale address, waiting about $1 seconds (default TD_SIGNIN_WAIT, looking every 3 seconds) for you to
 # allow Tailscale and sign in; nothing when the time runs out. Says once, on stderr, how to sign in, because stdout is
 # the address.
 td_wait_tailscale_ipv4() {
@@ -403,7 +403,7 @@ td_wait_tailscale_ipv4() {
 
 # Asks for the controllers' Tailscale addresses (comma-separated) and prints them one per line, asking again until
 # they pass the same checks as --controller-ip (td_resolve_controllers). $1 is this Mac's own address; the other
-# arguments are the controllers already whitelisted. Pressing Enter, or the end of the input, prints nothing, which
+# arguments are the controllers already whitelisted. Pressing Return, or the end of the input, prints nothing, which
 # keeps those controllers or, with none, leaves direct IP access off. The questions go to stderr, because stdout is
 # the answer.
 td_read_controllers() {
@@ -411,16 +411,17 @@ td_read_controllers() {
   shift
   if [ "$#" -gt 0 ]; then
     echo "Controllers already on the whitelist: $(IFS=,; echo "$*")" >&2
-    prompt='Press Enter to keep them, or type the controller addresses to use instead'
-    enter='press Enter to keep them'
+    prompt='Press Return to keep them, or type the controller addresses to use instead (commas between several)'
+    enter='press Return to keep them'
   else
     echo "The controller's address is its 100.x address in the Tailscale admin console (not this Mac's)." >&2
-    prompt="Type the controller's Tailscale address, or press Enter to skip for now"
-    enter='press Enter to skip'
+    prompt="Type the controller's Tailscale address (commas between several), or press Return to skip for now"
+    enter='press Return to skip'
   fi
   while :; do
     printf '%s: ' "$prompt" >&2
-    IFS= read -r answer || answer=''
+    # At the end of the input, read fails but keeps a last line typed without Return.
+    IFS= read -r answer || true
     [ -n "$(td_address_list "$answer")" ] || return 0
     # td_resolve_controllers prints the given list unchanged when it passes, so only its error is kept here.
     if err=$(td_resolve_controllers "$answer" '' "$own" 2>&1 > /dev/null); then
@@ -431,15 +432,17 @@ td_read_controllers() {
   done
 }
 
-# Which controllers install-host.sh whitelists. The first line says where they came from ("from --controller-ip",
-# "typed in" or "kept from before"), then one address per line. Addresses in $1 (from --controller-ip) are used
-# without asking. Otherwise it asks (td_read_controllers): typed addresses replace the whitelist ($2), and Enter keeps
-# its single Tailscale addresses that aren't this Mac's ($3). Fails on an invalid address in $1.
+# Which controllers install-host.sh whitelists. Line 1 says where they came from ("from --controller-ip", "typed in"
+# or "kept from before"). Line 2 is the addresses given or typed on this run, comma-separated, and empty when the old
+# ones were kept: install-host.sh passes those to test-host.sh. Then one controller per line. Addresses in $1 (from
+# --controller-ip) are used without asking. Otherwise it asks (td_read_controllers): typed addresses replace the
+# whitelist ($2), and Return keeps its single Tailscale addresses that aren't this Mac's ($3). Fails on an invalid
+# address in $1.
 td_choose_controllers() {
   local given=$1 current=$2 own=$3 list typed
   if [ -n "$(td_address_list "$given")" ]; then
     list=$(td_resolve_controllers "$given" '' "$own") || return 2
-    printf 'from --controller-ip\n%s\n' "$list"
+    printf 'from --controller-ip\n%s\n%s\n' "$(echo "$list" | paste -sd, -)" "$list"
     return 0
   fi
   list=$(td_resolve_controllers '' "$current" "$own")
@@ -447,10 +450,10 @@ td_choose_controllers() {
   # shellcheck disable=SC2086
   typed=$(td_read_controllers "$own" $list)
   if [ -n "$typed" ]; then
-    printf 'typed in\n%s\n' "$typed"
+    printf 'typed in\n%s\n%s\n' "$(echo "$typed" | paste -sd, -)" "$typed"
     return 0
   fi
-  echo 'kept from before'
+  printf 'kept from before\n\n'
   if [ -n "$list" ]; then printf '%s\n' "$list"; fi
 }
 

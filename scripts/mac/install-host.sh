@@ -3,8 +3,8 @@
 #
 # Run it on the HOST, the Mac that will be controlled, in Terminal as yourself (not with sudo): it asks for your Mac
 # password when a step needs it. It is safe to run again: each step skips what is already done. Without
-# --controller-ip it asks for the controllers' addresses in step 4, and pressing Enter there keeps the controllers
-# already whitelisted.
+# --controller-ip it asks for the controllers' addresses in step 4, and pressing Return there keeps the valid
+# controllers already whitelisted.
 #
 #   1. Installs Tailscale (pinned version) from Tailscale's own package server after checking the installer's SHA-256,
 #      its Apple signing team and Apple's notarization, if it isn't installed yet. Waits up to 10 minutes while you
@@ -84,10 +84,8 @@ current=${current#*=}
 # Asks for the controllers' addresses unless --controller-ip gave them.
 choice=$(td_choose_controllers "$given" "$current" "$my_ip")
 whitelist_source=$(echo "$choice" | sed -n 1p)
-controllers=$(echo "$choice" | sed 1d)
-# From here on, $given is what was given or typed on this run: nothing when Enter kept the old controllers.
-given=''
-if [ "$whitelist_source" != 'kept from before' ]; then given=$(echo "$controllers" | paste -sd, -); fi
+chosen_this_run=$(echo "$choice" | sed -n 2p)
+controllers=$(echo "$choice" | sed 1,2d)
 controller_args=()
 while IFS= read -r ip; do if [ -n "$ip" ]; then controller_args+=("$ip"); fi; done <<< "$controllers"
 if [ "${#controller_args[@]}" -gt 0 ]; then
@@ -95,7 +93,7 @@ if [ "${#controller_args[@]}" -gt 0 ]; then
 else
   echo 'No controller yet, so direct IP access is OFF.'
 fi
-if [ -z "$(td_address_list "$given")" ]; then
+if [ -z "$chosen_this_run" ]; then
   change=$(td_whitelist_change "$current" ${controller_args[@]+"${controller_args[@]}"})
   if [ -n "$change" ]; then
     echo "Not kept: $(echo "$change" | sed 1d | paste -sd, -). Each isn't a single Tailscale address or is this Mac's own."
@@ -122,7 +120,7 @@ fi
 step 'Step 6 of 6: Check'
 # Only addresses given or typed on this run are passed on; otherwise the check judges the whitelist on its own.
 check_args=()
-[ -z "$(td_address_list "$given")" ] || check_args=(--controller-ip "$(IFS=,; echo "${controller_args[*]}")")
+[ -z "$chosen_this_run" ] || check_args=(--controller-ip "$(IFS=,; echo "${controller_args[*]}")")
 checks=0
 "$here/test-host.sh" ${check_args[@]+"${check_args[@]}"} || checks=$?
 
