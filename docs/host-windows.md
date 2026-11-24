@@ -292,6 +292,8 @@ All host checks passed. Now test from the controller: test-from-controller.ps1 o
 
 After that it lists the password and two-factor steps for you to do in RustDesk, and this PC's Tailscale address
 again. Every line should say PASS. If one says FAIL, see [FAIL lines from test-host.ps1](#fail-lines-from-test-hostps1).
+Right after direct IP access is turned on, a line `Waiting up to 30 seconds for RustDesk to listen on TCP 21118 ...`
+can appear before "Host checks": RustDesk takes a few seconds to open its port, and the check waits for it.
 
 Later runs without `-ControllerIp` keep the controller addresses already on the whitelist. They don't keep anything
 that isn't a single `100.x` Tailscale address, such as a range or this PC's own address: the script names those entries.
@@ -403,7 +405,7 @@ must run from the controller: see the [controller guide](controller-windows.md#t
 | Whitelist doesn't include this PC's own address | Remove the host's own `100.x` address from the whitelist: only controllers belong there. |
 | Whitelist is not empty while direct IP access is on | Add the controller's address to the whitelist, or turn off direct IP access. |
 | RustDesk setting ... | That setting differs from [step 4's table](#4-rustdesk-security-settings). Fix it in RustDesk, or run `install-host.ps1` again. |
-| RustDesk listens on TCP 21118 | Direct IP access is on but nothing listens: restart the PC. |
+| RustDesk listens on TCP 21118 | Direct IP access is on, but RustDesk didn't open the port within 30 seconds. In the administrator PowerShell, run `Restart-Service RustDesk`, then run `.\test-host.ps1` again. If it still fails, restart the PC. |
 | Windows Firewall is on for the ... profile | Turn Windows Firewall back on for that profile (Windows Security → Firewall & network protection). |
 | Windows Firewall profiles were read | Windows returned no firewall profiles. Run the script again as administrator; if it still fails, check by hand with manual firewall command 6. |
 | RustDesk firewall rules exist | Reinstall RustDesk; its installer creates them. |
