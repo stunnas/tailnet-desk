@@ -792,3 +792,158 @@ port_listening() {
   [ "$(grep -c '^lsof' "$STUB_LOG")" -eq 1 ]
   ! grep -q '^sleep' "$STUB_LOG" || false
 }
+
+# Runs td_wait_tailscale_ipv4 with td_tailscale_ipv4 replaced: it gives 100.64.0.10 from its $SIGNED_IN_AFTER-th call
+# on (never when unset), and sleep only logs, so no real time passes. stdout is $output; stderr goes to $ERR.
+wait_signin() {
+  B="$BATS_TEST_TMPDIR/bin"; mkdir -p "$B"
+  printf '#!/bin/bash\nprintf "sleep %%s\\n" "$*" >> "$STUB_LOG"\n' > "$B/sleep"
+  chmod +x "$B/sleep"
+  export B LIB STUB_LOG="$BATS_TEST_TMPDIR/stub.log" ERR="$BATS_TEST_TMPDIR/err"
+  : > "$STUB_LOG"
+  run /bin/bash -c '
+    set -euo pipefail
+    . "$LIB"
+    eval "$(declare -f | sed -e "s#/bin/sleep#$B/sleep#g")"
+    td_tailscale_ipv4() {
+      echo look >> "$STUB_LOG"
+      if [ -n "${SIGNED_IN_AFTER-}" ] && [ "$(grep -c "^look" "$STUB_LOG")" -ge "$SIGNED_IN_AFTER" ]; then echo 100.64.0.10; fi
+    }
+    td_wait_tailscale_ipv4 "$@" 2> "$ERR"' x "$@"
+}
+
+@test "td_wait_tailscale_ipv4 gives the address at once, and says nothing, when Tailscale is signed in" {
+  SIGNED_IN_AFTER=1 wait_signin
+  [ "$status" -eq 0 ]
+  [ "$output" = 100.64.0.10 ]
+  [ ! -s "$ERR" ]
+  ! grep -q '^sleep' "$STUB_LOG" || false
+}
+
+@test "td_wait_tailscale_ipv4 says once how to sign in, then waits for the sign-in" {
+  SIGNED_IN_AFTER=4 wait_signin
+  [ "$status" -eq 0 ]
+  [ "$output" = 100.64.0.10 ]
+  [ "$(grep -c '^sleep 3$' "$STUB_LOG")" -eq 3 ]
+  [ "$(grep -c 'choose Log in' "$ERR")" -eq 1 ]
+  [ "$(grep -c "^Waiting up to 10 minutes for the sign-in. The script goes on by itself once you're signed in.$" "$ERR")" -eq 1 ]
+}
+
+@test "td_wait_tailscale_ipv4 gives nothing once the time is up" {
+  wait_signin 30
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ "$(grep -c '^sleep 3$' "$STUB_LOG")" -eq 10 ]
+  grep -q '^Waiting up to 1 minute for' "$ERR"
+}
+
+@test "td_wait_tailscale_ipv4 waits TD_SIGNIN_WAIT seconds by default, and looks once with no time to wait" {
+  td_sh '[ "$TD_SIGNIN_WAIT" -eq 600 ]'
+  [ "$status" -eq 0 ]
+  wait_signin
+  [ -z "$output" ]
+  [ "$(grep -c '^sleep 3$' "$STUB_LOG")" -eq 200 ]
+  wait_signin 0
+  [ -z "$output" ]
+  [ ! -s "$ERR" ]
+  [ "$(grep -c '^look' "$STUB_LOG")" -eq 1 ]
+  ! grep -q '^sleep' "$STUB_LOG" || false
+}
+
+# Runs td_read_controllers with $ANSWERS (one answer per line) as its input. stdout is $output; stderr goes to $ERR.
+read_controllers() {
+  export LIB ERR="$BATS_TEST_TMPDIR/err"
+  run /bin/bash -c 'set -euo pipefail; . "$LIB"; printf "%s" "$ANSWERS" | td_read_controllers "$@" 2> "$ERR"' x "$@"
+}
+
+@test "td_read_controllers gives the typed addresses, one per line, without repeats" {
+  ANSWERS=$' 100.64.0.11 \n' read_controllers 100.64.0.10
+  [ "$status" -eq 0 ]
+  [ "$output" = 100.64.0.11 ]
+  grep -q "press Enter to skip for now: $" "$ERR"
+  ANSWERS=$'100.64.0.11, 100.64.0.12,100.64.0.11\n' read_controllers 100.64.0.10
+  [ "$output" = $'100.64.0.11\n100.64.0.12' ]
+}
+
+@test "td_read_controllers gives nothing when Enter is pressed or the input ends" {
+  ANSWERS=$'\n' read_controllers 100.64.0.10
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  ANSWERS='' read_controllers 100.64.0.10
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "td_read_controllers asks again after an address that isn't a single Tailscale address, and says why" {
+  ANSWERS=$'192.168.0.10\n100.64.0.0/10\n100.64.0.11\n' read_controllers 100.64.0.10 # check-private-data: allow
+  [ "$status" -eq 0 ]
+  [ "$output" = 100.64.0.11 ]
+  [ "$(grep -o 'press Enter to skip for now: ' "$ERR" | wc -l)" -eq 3 ]
+  grep -q "Not a Tailscale address: '192.168.0.10'.* Type it again, or press Enter to skip.$" "$ERR" # check-private-data: allow
+}
+
+@test "td_read_controllers asks again after this Mac's own address" {
+  ANSWERS=$'100.64.0.10\n\n' read_controllers 100.64.0.10
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -q "'100.64.0.10' is this Mac's own address" "$ERR"
+}
+
+@test "td_read_controllers names the controllers already whitelisted, and Enter keeps them" {
+  ANSWERS=$'\n' read_controllers 100.64.0.10 100.64.0.11 100.64.0.12
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -q '^Controllers already on the whitelist: 100.64.0.11,100.64.0.12$' "$ERR"
+  grep -q '^Press Enter to keep them, or type the controller addresses to use instead: $' "$ERR"
+}
+
+# Runs td_choose_controllers with td_read_controllers replaced: it logs its arguments and prints $TYPED.
+choose_controllers() {
+  export LIB STUB_LOG="$BATS_TEST_TMPDIR/stub.log"
+  : > "$STUB_LOG"
+  run /bin/bash -c '
+    set -euo pipefail
+    . "$LIB"
+    td_read_controllers() { echo "asked $*" >> "$STUB_LOG"; if [ -n "${TYPED-}" ]; then printf "%s\n" "$TYPED"; fi; }
+    td_choose_controllers "$@"' x "$@"
+}
+
+@test "td_choose_controllers uses --controller-ip without asking" {
+  choose_controllers '100.64.0.11' '100.64.0.12' 100.64.0.10
+  [ "$status" -eq 0 ]
+  [ "$output" = $'from --controller-ip\n100.64.0.11' ]
+  [ ! -s "$STUB_LOG" ]
+}
+
+@test "td_choose_controllers refuses this Mac's own address in --controller-ip" {
+  choose_controllers '100.64.0.10' '' 100.64.0.10
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"this Mac's own address"* ]]
+}
+
+@test "td_choose_controllers uses typed addresses in place of the whitelist" {
+  TYPED=100.64.0.12 choose_controllers '' '100.64.0.11' 100.64.0.10
+  [ "$status" -eq 0 ]
+  [ "$output" = $'typed in\n100.64.0.12' ]
+}
+
+@test "td_choose_controllers keeps the valid controllers already whitelisted on Enter, and offers only those" {
+  choose_controllers '' '100.64.0.11,100.64.0.0/10,100.64.0.10' 100.64.0.10
+  [ "$status" -eq 0 ]
+  [ "$output" = $'kept from before\n100.64.0.11' ]
+  [ "$(cat "$STUB_LOG")" = 'asked 100.64.0.10 100.64.0.11' ]
+}
+
+@test "td_choose_controllers gives no controllers when there are none to keep and Enter is pressed" {
+  choose_controllers '' '' 100.64.0.10
+  [ "$status" -eq 0 ]
+  [ "$output" = 'kept from before' ]
+  [ "$(cat "$STUB_LOG")" = 'asked 100.64.0.10' ]
+}
+
+@test "td_read_controllers replaces the controllers already whitelisted with typed ones, and says Enter keeps them after a bad address" {
+  ANSWERS=$'bad\n100.64.0.12\n' read_controllers 100.64.0.10 100.64.0.11
+  [ "$status" -eq 0 ]
+  [ "$output" = 100.64.0.12 ]
+  grep -q "Not a Tailscale address: 'bad'.* Type it again, or press Enter to keep them.$" "$ERR"
+}

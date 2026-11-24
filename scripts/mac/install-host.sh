@@ -2,18 +2,20 @@
 # Sets up this Mac as a RustDesk host that only lets your controllers in, over Tailscale.
 #
 # Run it on the HOST, the Mac that will be controlled, in Terminal as yourself (not with sudo): it asks for your Mac
-# password when a step needs it. It is safe to run again: each step skips what is already done, and a run without
-# --controller-ip keeps the controllers already whitelisted.
+# password when a step needs it. It is safe to run again: each step skips what is already done. Without
+# --controller-ip it asks for the controllers' addresses in step 4, and pressing Enter there keeps the controllers
+# already whitelisted.
 #
 #   1. Installs Tailscale (pinned version) from Tailscale's own package server after checking the installer's SHA-256,
-#      its Apple signing team and Apple's notarization, if it isn't installed yet. Stops until you've allowed its
-#      network extension and signed in (you click those).
+#      its Apple signing team and Apple's notarization, if it isn't installed yet. Waits up to 10 minutes while you
+#      allow its network extension and sign in (you click those).
 #   2. Installs RustDesk (pinned version) from its official GitHub release after checking the disk image's SHA-256
 #      and its Apple signing team, if it isn't installed yet.
 #   3. Stops until RustDesk's background service and macOS permissions are in place (you click those).
 #   4. Sets RustDesk's security settings: no public ID or relay server, permanent password only, sessions start on the
 #      password without anyone clicking Accept, no LAN discovery, and direct IP access with only your controllers
-#      whitelisted (off until there is a controller).
+#      whitelisted (off until there is a controller). Asks for the controllers' addresses unless --controller-ip gave
+#      them.
 #   5. Sets the Mac to never sleep while on the charger (skip with --keep-sleep).
 #   6. Runs test-host.sh and lists what you still do by hand: the password and two-factor.
 #
@@ -21,7 +23,7 @@
 #
 # Usage: ./install-host.sh [--controller-ip 100.64.0.11[,100.64.0.12]] [--keep-sleep]
 #   --controller-ip  The Tailscale address (100.x.y.z) of each device allowed to connect. Never this Mac's own.
-#                    Leave it out on the first run if no controller is on Tailscale yet.
+#                    Leave it out and the script asks for it in step 4 instead.
 #   --keep-sleep     Don't change the sleep setting.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -47,15 +49,9 @@ td_resolve_controllers "$given" > /dev/null
 
 step 'Step 1 of 6: Tailscale'
 td_install_tailscale
-my_ip=$(td_tailscale_ipv4)
+my_ip=$(td_wait_tailscale_ipv4)
 if [ -z "$my_ip" ]; then
-  echo "Tailscale is installed but not signed in (or not running) yet. At this Mac:"
-  echo '  1. If Tailscale is not open, open it from Applications. When macOS asks to allow its network extension or'
-  echo '     VPN configuration, click Allow (or turn Tailscale on in System Settings > General > Login Items &'
-  echo '     Extensions > Network Extensions).'
-  echo '  2. Click the Tailscale icon in the menu bar, choose Log in, and sign in with the same account as your'
-  echo '     other devices.'
-  echo 'Then run this script again.'
+  echo "Tailscale still isn't signed in. Allow it and sign in as above, then run this script again."
   exit 2
 fi
 echo "Tailscale is signed in. This Mac's (the host's) Tailscale address: $my_ip"
@@ -85,12 +81,16 @@ echo 'Check by hand that Screen & System Audio Recording and Accessibility both 
 step "Step 4 of 6: RustDesk security settings"
 current=$(td_rustdesk_get whitelist)
 current=${current#*=}
-controllers=$(td_resolve_controllers "$given" "$current" "$my_ip")
+# Asks for the controllers' addresses unless --controller-ip gave them.
+choice=$(td_choose_controllers "$given" "$current" "$my_ip")
+whitelist_source=$(echo "$choice" | sed -n 1p)
+controllers=$(echo "$choice" | sed 1d)
+# From here on, $given is what was given or typed on this run: nothing when Enter kept the old controllers.
+given=''
+if [ "$whitelist_source" != 'kept from before' ]; then given=$(echo "$controllers" | paste -sd, -); fi
 controller_args=()
 while IFS= read -r ip; do if [ -n "$ip" ]; then controller_args+=("$ip"); fi; done <<< "$controllers"
 if [ "${#controller_args[@]}" -gt 0 ]; then
-  whitelist_source='from --controller-ip'
-  [ -n "$(td_address_list "$given")" ] || whitelist_source='kept from before'
   echo "Direct IP access: on. Whitelist ($whitelist_source): $(IFS=,; echo "${controller_args[*]}")"
 else
   echo 'No controller yet, so direct IP access is OFF.'
@@ -102,7 +102,7 @@ if [ -z "$(td_address_list "$given")" ]; then
     if [ "$(echo "$change" | sed -n 1p)" = removed ]; then
       echo '  They are removed from the whitelist now.'
     else
-      echo '  They stay in RustDesk until you run this again with --controller-ip, and the check below fails them.'
+      echo "  They stay in RustDesk until you run this again and type the controller's address, and the check below fails them."
     fi
   fi
 fi
@@ -120,7 +120,7 @@ else
 fi
 
 step 'Step 6 of 6: Check'
-# Only addresses given on this run are passed on; otherwise the check judges the whitelist on its own.
+# Only addresses given or typed on this run are passed on; otherwise the check judges the whitelist on its own.
 check_args=()
 [ -z "$(td_address_list "$given")" ] || check_args=(--controller-ip "$(IFS=,; echo "${controller_args[*]}")")
 checks=0
@@ -134,8 +134,8 @@ echo '     Use a random 20+ character password from your password manager. Never
 echo '  2. Two-factor authentication: turn it on and scan the QR code with your authenticator app.'
 echo '     Never photograph or share the QR code: it is the secret.'
 if [ "${#controller_args[@]}" -eq 0 ]; then
-  echo '  3. When the controller is on Tailscale, run this again with its address, for example:'
-  echo "     ./install-host.sh --controller-ip 100.64.0.11   (use the controller's real 100.x address)"
+  echo '  3. When the controller is on Tailscale, run ./install-host.sh again and type its 100.x address when it'
+  echo '     asks.'
 fi
 echo 'On each controller, leave "Remember password" off, and only trust a controller for two-factor if it stays'
 echo 'locked: whoever unlocks a trusted controller needs only the password.'

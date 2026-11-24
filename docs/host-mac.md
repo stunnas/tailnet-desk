@@ -123,13 +123,14 @@ Then [check the host](#check-the-host) and go to the controller to connect.
 ## Script path (partly tested on a real Mac)
 
 > **Partly tested.** On a Mac that already had Tailscale and RustDesk, the scripts ran and passed. Installing
-> Tailscale and RustDesk with the script hasn't run on a real Mac yet, so for a fresh install the manual path above
-> is the tested route. See the [README's Status](../README.md#status) for exactly what has run.
+> Tailscale and RustDesk with the script hasn't run on a real Mac yet, nor has the script waiting for the Tailscale
+> sign-in and asking for the controller's address, so for a fresh install the manual path above is the tested route. See the [README's Status](../README.md#status) for exactly what has run.
 
 The script does the manual path's steps except the ones that need you: allowing Tailscale's network extension and
 signing in, turning off key expiry, allowing RustDesk's service and its two permissions, choosing the password and scanning the
-two-factor QR code. It's safe to run more than once: each run skips what's already done and keeps the controllers
-already on the whitelist.
+two-factor QR code. It waits while you sign in to Tailscale, and asks for the controller's address. It's safe to
+run more than once: each run skips what's already done, and pressing Return at the address question keeps the
+controllers already on the whitelist.
 
 ### 1. Get the scripts
 
@@ -154,8 +155,9 @@ What happens:
    into a new private folder. The script checks the installer's SHA-256 fingerprint against the one stored in the
    script, that Tailscale's Apple developer team signed it and that Apple notarized it, and refuses anything else.
    Then it installs it and opens Tailscale. An existing Tailscale, Standalone or App Store, is kept as it is. If
-   Tailscale isn't signed in yet, the script stops: allow its network extension when macOS asks, then log in (manual
-   step 1, items 2 and 3), and run it again.
+   Tailscale isn't signed in yet, the script waits: allow its network extension when macOS asks, then log in (manual
+   step 1, items 2 and 3). The script goes on by itself once you're signed in. If you don't sign in within 10
+   minutes, it stops: sign in, then run it again.
 2. **RustDesk** (the pinned version), if it isn't installed yet, is downloaded from its official GitHub page into a
    new private folder. The script checks the disk image's SHA-256 fingerprint against the one stored in the script
    and that RustDesk's Apple developer team signed it, and refuses anything else. An existing RustDesk is kept if it
@@ -163,25 +165,36 @@ What happens:
 3. **RustDesk's service and permissions:** the first time, the script stops and asks you to do manual step 2, items
    3 to 5 (open RustDesk from Applications first). Then run it again. RustDesk then stops using its public servers.
 4. **RustDesk's settings:** the same as the manual table, except the password, two-factor and trusted devices (left
-   as you set them). Direct IP access stays
-   **off** for now, because there's no controller to whitelist yet.
+   as you set them). Then it asks for the controller's address. If the controller has already joined Tailscale
+   ([Windows](controller-windows.md#1-join-tailscale), [Mac](controller-mac.md#1-join-tailscale) or
+   [iPhone](controller-iphone.md#1-join-tailscale)), type its `100.x` address from the
+   [Tailscale admin console](https://login.tailscale.com/admin/machines) (not this Mac's own) and press **Return**.
+   Otherwise just press **Return**: direct IP access stays **off** until you add a controller
+   ([Later: add the controller](#3-later-add-the-controller)).
 5. **Sleep:** the Mac no longer sleeps on the charger (skip with `--keep-sleep`).
 6. **A check** runs and prints PASS or FAIL lines, then the steps left for you.
 
 At the end it prints **this Mac's Tailscale address**: the controller connects to it. Then do the manual path's
 [key expiry step](#1-tailscale) (step 4) and the password and two-factor rows of [step 3](#3-rustdesk-security-settings).
 
-### 3. Second run, with the controller's address
+### 3. Later: add the controller
 
-Once the controller has joined Tailscale, find the **controller's** `100.x` address in the
-[Tailscale admin console](https://login.tailscale.com/admin/machines). Not this Mac's own address. Then run:
+If you typed the controller's address in the first run, skip this. Otherwise, once the controller has joined
+Tailscale, find the **controller's** `100.x` address in the
+[Tailscale admin console](https://login.tailscale.com/admin/machines). Not this Mac's own address. Then run the
+script again:
 
 ```bash
-./install-host.sh --controller-ip 100.64.0.11
+./install-host.sh
 ```
 
-This turns on direct IP access with only that address on RustDesk's whitelist. For more than one controller,
-separate the addresses with commas: `--controller-ip 100.64.0.11,100.64.0.12`.
+When it asks, type the controller's address and press **Return**. This turns on direct IP access with only that
+address on RustDesk's whitelist. For more than one controller, separate the addresses with commas:
+`100.64.0.11, 100.64.0.12`. If an address isn't a single Tailscale address, or is this Mac's own, the script says so
+and asks again.
+
+To skip the question, give the address on the command line instead: `./install-host.sh --controller-ip 100.64.0.11`
+(commas between several).
 
 On a Mac that already has Tailscale and RustDesk, the output looks like this (with your addresses). It asks for your Mac password
 once:
@@ -201,7 +214,9 @@ RustDesk no longer uses its public servers.
 Check by hand that Screen & System Audio Recording and Accessibility both list RustDesk as allowed.
 
 == Step 4 of 6: RustDesk security settings
-Direct IP access: on. Whitelist (from --controller-ip): 100.64.0.11
+The controller's address is its 100.x address in the Tailscale admin console (not this Mac's).
+Type the controller's Tailscale address, or press Enter to skip for now: 100.64.0.11
+Direct IP access: on. Whitelist (typed in): 100.64.0.11
 
 == Step 5 of 6: Sleep
 ...
@@ -218,11 +233,11 @@ All host checks passed. Now test from the controller: test-from-controller.sh on
 After that it lists the password and two-factor steps for you to do in RustDesk, and this Mac's Tailscale address
 again.
 
-Later runs without `--controller-ip` keep the controller addresses already on the whitelist. They don't keep anything
-that isn't a single `100.x` Tailscale address, such as a range or this Mac's own address: the script names those entries.
-If valid addresses are left, the whitelist is set to just those. If none are left, direct IP access is turned off
-and the old entries stay in RustDesk's whitelist, so the check at the end fails them. Run the script again with
-`--controller-ip` and the controller's address to replace them.
+On later runs the question names the controllers already on the whitelist, and pressing **Return** keeps them;
+typing addresses replaces them. Return doesn't keep anything that isn't a single `100.x` Tailscale address, such as a
+range or this Mac's own address: the script names those entries. If valid addresses are left, the whitelist is set
+to just those. If none are left, direct IP access is turned off and the old entries stay in RustDesk's whitelist,
+so the check at the end fails them. Run the script again and type the controller's address to replace them.
 
 ## Optional: limit RustDesk to Tailscale in the firewall
 
@@ -342,8 +357,9 @@ tests that prove the setup works must run from the controller.
 |---|---|---|
 | "can't be opened" or "Permission denied" | The script lost its run permission when it was downloaded. | Run it as `bash ./install-host.sh` (or `bash ./test-host.sh`, and so on). |
 | "Run this as yourself, not with sudo" | The script was started with `sudo`. | Run it without `sudo`; it asks for your password when needed. |
-| "Tailscale is installed but not signed in (or not running) yet" | Tailscale gave this Mac no address: its network extension isn't allowed yet, or nobody has logged in. | Allow the extension and log in ([manual step 1](#1-tailscale), items 2 and 3). Then run the script again. |
-| "Not a Tailscale address" | An address given to `--controller-ip` isn't a Tailscale address (`100.64.x.x` to `100.127.x.x`). | Copy the controller's address from the Tailscale admin console. |
+| "Tailscale is installed but not signed in (or not running) yet" | Tailscale hasn't given this Mac an address yet: its network extension isn't allowed yet, or nobody has logged in. The script waits up to 10 minutes. | Allow the extension and log in ([manual step 1](#1-tailscale), items 2 and 3). The script goes on once you're signed in. |
+| "Tailscale still isn't signed in" | 10 minutes passed without a sign-in, so the script stopped. Nothing after Tailscale was changed. | Allow the extension and log in as above, then run the script again. |
+| "Not a Tailscale address" | An address given to `--controller-ip`, or typed at the script's question, isn't a Tailscale address (`100.64.x.x` to `100.127.x.x`). Typed at the question, the script asks again. | Copy the controller's address from the Tailscale admin console. |
 | "... is this Mac's own address" | You gave the host's address instead of the controller's. | Use the controller's `100.x` address. |
 | "Couldn't download ..." | The script couldn't reach Tailscale's package server or GitHub. Nothing was installed. | Check the internet connection and try again later. |
 | "The download's SHA-256 doesn't match the pinned one", "The installer isn't signed by Tailscale's Apple team and notarized by Apple", "The disk image isn't signed by RustDesk's Apple team" or "The app in the disk image isn't signed ..." | The downloaded file isn't the one this repo was tested with. Nothing was installed. | Don't install it by hand from that download. Try again later, and if it keeps happening, [open an issue](https://github.com/stunnas/tailnet-desk/issues). |
@@ -374,7 +390,7 @@ tests that prove the setup works must run from the controller.
 | RustDesk's settings could be read | RustDesk's command line didn't answer. Quit and reopen RustDesk, check it's allowed in the background, and run the check again. |
 | No checks ran | Nothing was checked, so nothing passed. Run the script again and see what it printed before this line. |
 | RustDesk's background service is running | Open RustDesk and allow its service; check it's allowed in the background. |
-| Given controller address ... / Whitelist entry ... is one Tailscale address | Replace it with the controller's single `100.x` address, no ranges: run `./install-host.sh --controller-ip` with it, or edit the whitelist in RustDesk. This fails even while direct IP access is off, so turning it on later can't bring the entry back. |
+| Given controller address ... / Whitelist entry ... is one Tailscale address | Replace it with the controller's single `100.x` address, no ranges: run `./install-host.sh` and type it at the question, or edit the whitelist in RustDesk. This fails even while direct IP access is off, so turning it on later can't bring the entry back. |
 | Whitelist doesn't include this Mac's own address | Remove the host's own `100.x` address from the whitelist: only controllers belong there. |
 | Whitelist is not empty while direct IP access is on | Add the controller's address to the whitelist, or turn off direct IP access. |
 | RustDesk setting ... | That setting differs from [step 3's table](#3-rustdesk-security-settings). Fix it in RustDesk, or run `./install-host.sh` again. |
@@ -388,7 +404,7 @@ tests that prove the setup works must run from the controller.
 | "Not ready. Please check your connection" at the bottom of RustDesk | RustDesk can't reach its ID server, because the ID and relay servers are set to `127.0.0.1` on purpose. | Nothing: connections by Tailscale address don't need it. |
 | The controller sees a black or blank screen | RustDesk isn't allowed to record the screen. | Allow it under Screen & System Audio Recording, then quit and reopen RustDesk. |
 | The controller sees the screen but can't click or type | RustDesk isn't allowed to control the Mac. | Allow it under Accessibility, then quit and reopen RustDesk. If it's already on, remove RustDesk with **-** and add it again with **+**. |
-| "Your ip is blocked by the peer" on the controller | The controller's address isn't on the whitelist, or Tailscale is off on the controller. | Check the controller's `100.x` address and add it (manual step 3, or the script's second run). |
+| "Your ip is blocked by the peer" on the controller | The controller's address isn't on the whitelist, or Tailscale is off on the controller. | Check the controller's `100.x` address and add it ([manual step 3](#3-rustdesk-security-settings), or run `./install-host.sh` again and type it at the question: [Later: add the controller](#3-later-add-the-controller)). |
 | The Mac can't be reached after a restart | RustDesk's startup items are missing: "Stop service" removes them, and "Start service" doesn't put them back. | At the Mac, open RustDesk and click **Install** under "For starting on boot". `test-host.sh` checks this. |
 | The Mac can't be reached after a while | It went to sleep. | See [step 4](#4-stay-awake). A closed MacBook sleeps unless something keeps it awake. |
 | Lost the phone with the authenticator app | You can't pass two-factor. | Sit at the host, turn two-factor off and on in RustDesk's Security settings, and scan the new QR code. |
