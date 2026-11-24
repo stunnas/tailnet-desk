@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
-# Tests for the Version watch workflow's pin edit: the block between "# BEGIN pin-edit" and "# END pin-edit" in
-# .github/workflows/version-watch.yml, which runs with write scopes. Each test runs that block, as written there, on a
-# git copy of the two real scripts, with made-up values. Run: bats tests/tools
+# Tests for the Version watch workflow's write job: the blocks between "# BEGIN pin-edit" and "# END pin-edit", and
+# between "# BEGIN push-check" and "# END push-check", in .github/workflows/version-watch.yml. Each test runs them, as
+# written there, on a git copy of the two real scripts (with the repo's .gitattributes, as on the runner), with
+# made-up values. Run: bats tests/tools
 
 ROOT="$BATS_TEST_DIRNAME/../.."
 WORKFLOW="$ROOT/.github/workflows/version-watch.yml"
@@ -12,12 +13,15 @@ setup() {
   mkdir -p "$TMP/repo/scripts/mac" "$TMP/repo/scripts/windows" "$TMP/out"
   cp "$ROOT/scripts/mac/tailnet-desk.sh" "$TMP/repo/scripts/mac/"
   cp "$ROOT/scripts/windows/tailnet-desk.psm1" "$TMP/repo/scripts/windows/"
+  cp "$ROOT/.gitattributes" "$TMP/repo/"
   printf 'other\n' > "$TMP/repo/other.txt"
   git -C "$TMP/repo" init -q
-  git -C "$TMP/repo" -c core.autocrlf=false add -A
+  git -C "$TMP/repo" add -A
   git -C "$TMP/repo" -c user.name=t -c user.email=t@example.com commit -q -m base
-  awk '/# BEGIN pin-edit/{f=1} f{print} /# END pin-edit/{f=0}' "$WORKFLOW" | sed 's/^          //' > "$TMP/edit.sh"
+  block pin-edit > "$TMP/edit.sh"
+  block push-check > "$TMP/push-check.sh"
   [ "$(wc -l < "$TMP/edit.sh")" -gt 50 ]
+  [ "$(wc -l < "$TMP/push-check.sh")" -gt 4 ]
   export BUMP_OUT="$TMP/out" GITHUB_OUTPUT="$TMP/out/output"
   : > "$GITHUB_OUTPUT"
 }
@@ -25,6 +29,12 @@ setup() {
 teardown() {
   rm -rf "$TMP"
 }
+
+# The workflow's block between "# BEGIN $1" and "# END $1", unindented.
+block() { awk -v b="# BEGIN $1" -v e="# END $1" 'index($0, b){f=1} f{print} index($0, e){f=0}' "$WORKFLOW" | sed 's/^          //'; }
+
+# Runs the push step's checks with BRANCH and TITLE as given.
+push_check() { run env BRANCH="$1" TITLE="$2" bash "$TMP/push-check.sh"; }
 
 # Runs the pin edit in the copy with the environment it's given.
 edit() {
@@ -55,8 +65,8 @@ changed() { git -C "$TMP/repo" diff -U0 -- "$1" | grep -E '^\+[^+]' | sed 's/^+/
   grep -q "^# Tailscale's Standalone installer from its own package server. Released 2026-11-03: the same version" <<< "$mac"
   win=$(changed scripts/windows/tailnet-desk.psm1)
   [ "$(wc -l <<< "$win")" -eq 3 ]
-  grep -qx "    TailscaleVersion   = '1.104.5'"$'\r' <<< "$win"
-  grep -qx "    TailscaleMsiSha256 = '$H1'"$'\r' <<< "$win"
+  grep -qx "    TailscaleVersion   = '1.104.5'" <<< "$win"
+  grep -qx "    TailscaleMsiSha256 = '$H1'" <<< "$win"
   grep -q "^    # Tailscale's own Windows installer (MSI) from its package server, released 2026-11-03: " <<< "$win"
   # The Windows file keeps its CRLF line endings on every line.
   [ "$(grep -c $'\r$' "$TMP/repo/scripts/windows/tailnet-desk.psm1")" -eq "$(wc -l < "$TMP/repo/scripts/windows/tailnet-desk.psm1")" ]
@@ -87,8 +97,8 @@ changed() { git -C "$TMP/repo" diff -U0 -- "$1" | grep -E '^\+[^+]' | sed 's/^+/
   grep -q '^# Released 2026-11-20. Bump together with both SHA-256 values' <<< "$mac"
   win=$(changed scripts/windows/tailnet-desk.psm1)
   [ "$(wc -l <<< "$win")" -eq 6 ]
-  grep -qx "    RustDeskVersion = '1.5.5'"$'\r' <<< "$win"
-  grep -qx "    RustDeskSha256  = '$H1'"$'\r' <<< "$win"
+  grep -qx "    RustDeskVersion = '1.5.5'" <<< "$win"
+  grep -qx "    RustDeskSha256  = '$H1'" <<< "$win"
   grep -qF '| 1.5.4 | 2026-11-12 | [Release](https://github.com/rustdesk/rustdesk/releases/tag/1.5.4) |' "$BUMP_OUT/bump-body.md"
   grep -qx 'title=chore(deps): bump RustDesk to 1.5.5 and Tailscale to 1.104.5' "$GITHUB_OUTPUT"
   grep -qx 'branch=bump/rustdesk-1.5.5-tailscale-1.104.5' "$GITHUB_OUTPUT"
@@ -138,6 +148,57 @@ changed() { git -C "$TMP/repo" diff -U0 -- "$1" | grep -E '^\+[^+]' | sed 's/^+/
   edit
   [ "$status" -eq 1 ]
   grep -q 'Changed a line that is not a pin line' <<< "$output"
+}
+
+@test "passes the app that isn't due as empty values, as the workflow's env: does" {
+  tailscale
+  export RUSTDESK_VERSION= RUSTDESK_DATE= RUSTDESK_COVERED= RUSTDESK_EXE_SHA256= RUSTDESK_DMG_ARM64_SHA256= RUSTDESK_DMG_X86_64_SHA256=
+  edit
+  [ "$status" -eq 0 ]
+  ! git -C "$TMP/repo" diff -U0 | grep -E '^[-+][^-+]' | grep -q RustDesk || false
+  [ "$(git -C "$TMP/repo" diff -U0 | grep -c -E '^\+[^+]')" -eq 6 ]
+}
+
+@test "checks every value before editing anything, so a bad Tailscale value leaves good RustDesk values unapplied" {
+  tailscale; rustdesk
+  export TAILSCALE_PKG_SHA256=abc
+  edit
+  [ "$status" -eq 1 ]
+  grep -q 'Refused the Tailscale pkg hash' <<< "$output"
+  [ -z "$(git -C "$TMP/repo" status --porcelain)" ]
+}
+
+@test "stops when the edit leaves a file with more or fewer lines" {
+  tailscale
+  # A second, allowed-looking pin line in the working copy: the line allowlist passes it, the line count doesn't.
+  sed -i.bak "/^    RustDeskVersion = /p" "$TMP/repo/scripts/windows/tailnet-desk.psm1"
+  rm "$TMP/repo/scripts/windows/tailnet-desk.psm1.bak"
+  edit
+  [ "$status" -eq 1 ]
+  grep -q 'The edit added or removed lines in scripts/windows/tailnet-desk.psm1' <<< "$output"
+}
+
+@test "the push step accepts the branch and title the pin edit makes, and nothing else" {
+  tailscale
+  edit
+  [ "$status" -eq 0 ]
+  push_check "$(sed -n 's/^branch=//p' "$GITHUB_OUTPUT")" "$(sed -n 's/^title=//p' "$GITHUB_OUTPUT")"
+  [ "$status" -eq 0 ]
+  : > "$GITHUB_OUTPUT"; rustdesk
+  edit
+  [ "$status" -eq 0 ]
+  push_check "$(sed -n 's/^branch=//p' "$GITHUB_OUTPUT")" "$(sed -n 's/^title=//p' "$GITHUB_OUTPUT")"
+  [ "$status" -eq 0 ]
+  for branch in 'bump/' 'bump/-' 'bump/x;y' 'main' 'bump/tailscale-1.104.5;id' 'bump/tailscale-1.104.5-rustdesk-1.5.5'; do
+    push_check "$branch" 'chore(deps): bump Tailscale to 1.104.5'
+    [ "$status" -eq 1 ]
+    grep -q 'Refused the branch name' <<< "$output"
+  done
+  for title in 'chore(deps): bump Tailscale to $(id)' 'chore(deps): bump Tailscale to 1.104' 'feat: bump Tailscale to 1.104.5'; do
+    push_check bump/tailscale-1.104.5 "$title"
+    [ "$status" -eq 1 ]
+    grep -q 'Refused the title' <<< "$output"
+  done
 }
 
 @test "stops when there is nothing to bump" {

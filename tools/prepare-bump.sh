@@ -3,25 +3,41 @@
 # values as KEY=VALUE lines for the version-watch workflow. It runs in that workflow's read-only job: it changes no
 # file in the repo, and the job that opens the PR checks every value again before using it.
 #
-# Each download is checked against the hash its own source publishes, and refused on any difference:
-#   Tailscale  the .sha256 file next to each installer on Tailscale's package server (TD_TAILSCALE_PKG_BASE)
-#   RustDesk   the SHA-256 digest GitHub shows for each asset of RustDesk's release
-# Signatures (Authenticode, Apple's team and notarization) can't be checked on the Linux runner; the install scripts
-# check them on every install, and the bump PR says so.
+# The sources and file names are the install scripts' own: Tailscale's package server (TD_TAILSCALE_PKG_BASE) and
+# RustDesk's GitHub repo (TD_RUSTDESK_REPO) are read from scripts/mac/tailnet-desk.sh, and the file names follow the
+# patterns both install scripts use (tests/tools/prepare-bump.bats checks they match). Each download is checked
+# against the hash its own source publishes, and refused on any difference:
+#   Tailscale  the .sha256 file next to each installer on Tailscale's package server. It comes from the same server, so
+#              it shows the download arrived intact, not who built it.
+#   RustDesk   the SHA-256 digest GitHub shows for each asset of RustDesk's release. An asset uploaded or replaced less
+#              than two weeks ago is refused, so a file swapped on an old release can't pass for an old one.
+# Signatures can't be checked on the Linux runner. The install scripts check them on every install: Authenticode on
+# Windows; on the Mac, Apple's signing team for both apps, and Apple's notarization for Tailscale's installer.
 #
 # Usage: tools/prepare-bump.sh <targets-file> <download-folder>
 #   The targets file is check-versions.sh's TARGETS_FILE. Prints, for each due app (rustdesk, tailscale):
 #   <app>_version, <app>_date, <app>_covered, then the hashes: tailscale_msi_sha256 and tailscale_pkg_sha256;
-#   rustdesk_exe_sha256, rustdesk_dmg_arm64_sha256 and rustdesk_dmg_x86_64_sha256. Exit 0, or 2 when anything is off.
+#   rustdesk_exe_sha256, rustdesk_dmg_arm64_sha256 and rustdesk_dmg_x86_64_sha256. CUTOFF (YYYY-MM-DD, default 14
+#   days before today in UTC) is the latest upload date a RustDesk asset may have. Exit 0, or 2 when anything is off.
 set -euo pipefail
 
-TS_BASE=${TS_BASE:-https://pkgs.tailscale.com/stable}       # the same server the install scripts download from
-RD_REPO=rustdesk/rustdesk
+root=$(cd "$(dirname "$0")/.." && pwd)
+mac="$root/scripts/mac/tailnet-desk.sh"
 
 die() { echo "prepare-bump: $*" >&2; exit 2; }
 [ "$#" -eq 2 ] || die 'needs 2 arguments: the targets file and a download folder (see the header)'
 targets=$1 dir=$2
 [ -f "$targets" ] || die "no such file: $targets"
+
+# The single-quoted value of setting $1 in the Mac library.
+setting() { sed -n -E "s/^$1='([^']*)'.*/\1/p" "$mac"; }
+ts_base=$(setting TD_TAILSCALE_PKG_BASE)
+rd_repo=$(setting TD_RUSTDESK_REPO)
+[[ $ts_base =~ ^https://[a-z0-9.-]+(/[A-Za-z0-9._-]+)*$ ]] || die "TD_TAILSCALE_PKG_BASE isn't an https address: $ts_base"
+[[ $rd_repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "TD_RUSTDESK_REPO isn't owner/repo: $rd_repo"
+
+cutoff=${CUTOFF:-$(date -u -d '14 days ago' +%Y-%m-%d 2>/dev/null || date -u -v-14d +%Y-%m-%d)}
+[[ $cutoff =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || die "CUTOFF isn't YYYY-MM-DD: $cutoff"
 mkdir -p "$dir"
 
 is_version() { [[ $1 =~ ^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$ ]]; }
@@ -31,39 +47,48 @@ is_sha() { [[ $1 =~ ^[0-9a-f]{64}$ ]]; }
 
 sha_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
 
-# Downloads URL $1 into the download folder as $2.
-fetch() { curl -fsSL --proto '=https' --retry 3 -o "$dir/$2" "$1" || die "couldn't download $2"; }
+# Downloads URL $1 into the download folder as $2, over https only, redirects included.
+fetch() { curl -fsSL --proto '=https' --proto-redir '=https' --retry 3 -o "$dir/$2" "$1" < /dev/null || die "couldn't download $2"; }
+
+# The file names both install scripts download for version $1, as "key name" lines.
+tailscale_files() { printf '%s\n' "msi tailscale-setup-$1-amd64.msi" "pkg Tailscale-$1-macos.pkg"; }
+rustdesk_files() {
+  printf '%s\n' "exe rustdesk-$1-x86_64.exe" "dmg_arm64 rustdesk-$1-aarch64.dmg" "dmg_x86_64 rustdesk-$1-x86_64.dmg"
+}
 
 # Tailscale version $1: downloads both installers and checks each against the server's .sha256 file.
 tailscale() {
-  local v=$1 name published actual key
-  for pair in "msi tailscale-setup-$v-amd64.msi" "pkg Tailscale-$v-macos.pkg"; do
-    key=${pair%% *}; name=${pair#* }
-    fetch "$TS_BASE/$name" "$name"
-    fetch "$TS_BASE/$name.sha256" "$name.sha256"
+  local v=$1 key name published actual
+  while read -r key name; do
+    fetch "$ts_base/$name" "$name"
+    fetch "$ts_base/$name.sha256" "$name.sha256"
     published=$(tr -d ' \t\r\n' < "$dir/$name.sha256" | cut -c1-64)
     is_sha "$published" || die "$name.sha256 isn't a SHA-256"
     actual=$(sha_of "$dir/$name")
     [ "$actual" = "$published" ] || die "$name doesn't match the SHA-256 Tailscale's server publishes"
     echo "tailscale_${key}_sha256=$actual"
-  done
+  done < <(tailscale_files "$v")
 }
 
-# RustDesk version $1: downloads the Windows installer and both Mac disk images and checks each against GitHub's digest.
+# RustDesk version $1: downloads the Windows installer and both Mac disk images and checks each against GitHub's
+# digest, after checking each was uploaded on or before the cutoff.
 rustdesk() {
-  local v=$1 digests name key digest actual
-  digests=$(gh api "repos/$RD_REPO/releases/tags/$v" --jq '.assets[] | .name + " " + (.digest // "")') ||
+  local v=$1 assets key name digest uploaded actual
+  assets=$(gh api "repos/$rd_repo/releases/tags/$v" \
+    --jq '.assets[] | .name + " " + (.digest // "-") + " " + .updated_at' < /dev/null) ||
     die "couldn't read RustDesk $v's release"
-  for pair in "exe rustdesk-$v-x86_64.exe" "dmg_arm64 rustdesk-$v-aarch64.dmg" "dmg_x86_64 rustdesk-$v-x86_64.dmg"; do
-    key=${pair%% *}; name=${pair#* }
-    digest=$(awk -v n="$name" '$1 == n { print $2 }' <<< "$digests")
+  while read -r key name; do
+    digest=$(awk -v n="$name" '$1 == n { print $2 }' <<< "$assets")
+    uploaded=$(awk -v n="$name" '$1 == n { print substr($3, 1, 10) }' <<< "$assets")
     digest=${digest#sha256:}
     is_sha "$digest" || die "GitHub shows no SHA-256 digest for $name"
-    fetch "https://github.com/$RD_REPO/releases/download/$v/$name" "$name"
+    is_date "$uploaded" || die "GitHub shows no upload date for $name"
+    [[ ! $uploaded > $cutoff ]] || die "$name was uploaded on $uploaded, less than two weeks ago"
+    fetch "https://github.com/$rd_repo/releases/download/$v/$name" "$name"
     actual=$(sha_of "$dir/$name")
     [ "$actual" = "$digest" ] || die "$name doesn't match the SHA-256 digest GitHub shows"
     echo "rustdesk_${key}_sha256=$actual"
-  done
+  done < <(rustdesk_files "$v")
 }
 
 lines=0

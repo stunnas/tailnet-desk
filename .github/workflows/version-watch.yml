@@ -2,16 +2,20 @@
 # with their releases on GitHub, using tools/check-versions.sh (its header says when a bump is due). When one is due,
 # it opens a PR that bumps the pin, like Dependabot does for the actions, with links to each new version's notes.
 #
-# Two jobs, so the write token never meets outside data or downloaded files:
+# Two jobs, so the write token never meets downloaded files, and gets outside values only as versions, dates, lists
+# of version:date and SHA-256 values, which both jobs check:
 #   watch    read-only. Checks the comparison on made-up releases, looks up the real ones, and for a due bump
 #            downloads the installers and hashes them, each checked against the hash its source publishes
 #            (tools/prepare-bump.sh).
-#   propose  the only job with write scopes, with the built-in token and no stored secrets. It runs only checkout and
-#            the runner's own shell, git and gh: none of the repo's scripts and no downloaded code. It takes the
-#            watch job's values through env:, refuses any value that isn't a version, date or SHA-256, edits only the
-#            pin lines named below, checks that nothing else changed, pushes its own bump/ branch and opens a PR. It
-#            never pushes to main, merges or approves.
-# A PR opened with the built-in token doesn't start CI: close and reopen it to start CI, then review it as usual.
+#   propose  the only job with write scopes, with the built-in token and no stored secrets, and only on main. It runs
+#            only checkout and the runner's own shell, git and gh: none of the repo's scripts and no downloaded code.
+#            It takes the watch job's values through env:, refuses any that isn't in its expected form before editing
+#            anything, edits only the pin lines named below, checks that nothing else changed, pushes its own bump/
+#            branch and opens a PR. It never pushes to main, merges or approves.
+# Opening the PR needs the repo setting "Allow GitHub Actions to create and approve pull requests" (Settings > Actions >
+# General). That setting also lets a workflow's token approve PRs; main's ruleset requires no approvals, so an
+# approval lets nothing through that checks don't. A PR opened with the built-in token doesn't start CI: close and
+# reopen it to start CI, then review it as usual.
 # Kept apart from CI, whose results never depend on the network. GitHub turns off the schedule in a public repo after
 # 60 days without activity: turn the workflow back on in the Actions tab, then run it by hand.
 name: Version watch
@@ -99,7 +103,7 @@ jobs:
   propose:
     name: Open a PR that bumps the pins
     needs: watch
-    if: needs.watch.outputs.due == '1'
+    if: needs.watch.outputs.due == '1' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -137,15 +141,10 @@ jobs:
           edit() { local f=$1; shift; sed -E "$@" "$f" > "$f.new"; cat "$f.new" > "$f"; rm "$f.new"; }
           # The single-quoted value of pin $2 in file $1.
           pinned() { sed -n -E "s/^ *$2 *= *'([^']*)'.*/\1/p" "$1"; }
-          title=() parts=() body="$BUMP_OUT/bump-body.md"
           # Fails unless pin $2 in file $1 now holds $3.
           holds() { [ "$(pinned "$1" "$2")" = "$3" ] || { echo "::error::$2 in $1 didn't take the new value" >&2; exit 1; }; }
           # Fails unless file $1 has a line matching $2 (a release-date comment that took its new date).
           has() { grep -q -E "$2" "$1" || { echo "::error::A release-date comment in $1 didn't take the new date" >&2; exit 1; }; }
-          {
-            echo 'Opened by the Version watch workflow. It bumps each pin below to the newest release that is at least'
-            echo 'two weeks old.'
-          } > "$body"
           # Writes a notes table: $1 is the release page URL before the version, $2 an extra link, $3 the version:date list.
           notes() {
             local item items ver day
@@ -156,6 +155,7 @@ jobs:
               echo "| $ver | $day | [Release]($1$ver)$2 |"
             done
           }
+          # Every value is checked before any file changes.
           if [ -n "${RUSTDESK_VERSION-}" ]; then
             need 'the RustDesk version' "$RUSTDESK_VERSION" "$v"
             need 'the RustDesk date' "$RUSTDESK_DATE" "$d"
@@ -163,6 +163,21 @@ jobs:
             need 'the RustDesk exe hash' "$RUSTDESK_EXE_SHA256" "$h"
             need 'the RustDesk ARM64 disk image hash' "$RUSTDESK_DMG_ARM64_SHA256" "$h"
             need 'the RustDesk x86_64 disk image hash' "$RUSTDESK_DMG_X86_64_SHA256" "$h"
+          fi
+          if [ -n "${TAILSCALE_VERSION-}" ]; then
+            need 'the Tailscale version' "$TAILSCALE_VERSION" "$v"
+            need 'the Tailscale date' "$TAILSCALE_DATE" "$d"
+            need 'the Tailscale release list' "$TAILSCALE_COVERED" "$v:$d(,$v:$d)*"
+            need 'the Tailscale MSI hash' "$TAILSCALE_MSI_SHA256" "$h"
+            need 'the Tailscale pkg hash' "$TAILSCALE_PKG_SHA256" "$h"
+          fi
+          [ -n "${RUSTDESK_VERSION-}${TAILSCALE_VERSION-}" ] || { echo '::error::Nothing to bump' >&2; exit 1; }
+          title=() parts=() body="$BUMP_OUT/bump-body.md"
+          {
+            echo 'Opened by the Version watch workflow. It bumps each pin below to the newest release that is at least'
+            echo 'two weeks old.'
+          } > "$body"
+          if [ -n "${RUSTDESK_VERSION-}" ]; then
             old=$(pinned "$mac" TD_RUSTDESK_VERSION)
             edit "$mac" \
               -e "s/^(TD_RUSTDESK_VERSION=')[^']*'/\1$RUSTDESK_VERSION'/" \
@@ -182,17 +197,12 @@ jobs:
             title+=("RustDesk to $RUSTDESK_VERSION"); parts+=("rustdesk-$RUSTDESK_VERSION")
             {
               echo; echo "## RustDesk $old to $RUSTDESK_VERSION"
-              echo "The Windows installer and both Mac disk images were downloaded from RustDesk's GitHub release and"
-              echo "each matched the SHA-256 digest GitHub shows for it."
+              echo "The Windows installer and both Mac disk images were downloaded from RustDesk's GitHub release. Each"
+              echo "was uploaded at least two weeks ago and matched the SHA-256 digest GitHub shows for it."
               notes https://github.com/rustdesk/rustdesk/releases/tag/ '' "$RUSTDESK_COVERED"
             } >> "$body"
           fi
           if [ -n "${TAILSCALE_VERSION-}" ]; then
-            need 'the Tailscale version' "$TAILSCALE_VERSION" "$v"
-            need 'the Tailscale date' "$TAILSCALE_DATE" "$d"
-            need 'the Tailscale release list' "$TAILSCALE_COVERED" "$v:$d(,$v:$d)*"
-            need 'the Tailscale MSI hash' "$TAILSCALE_MSI_SHA256" "$h"
-            need 'the Tailscale pkg hash' "$TAILSCALE_PKG_SHA256" "$h"
             old=$(pinned "$mac" TD_TAILSCALE_VERSION)
             edit "$mac" \
               -e "s/^(TD_TAILSCALE_VERSION=')[^']*'/\1$TAILSCALE_VERSION'/" \
@@ -209,14 +219,14 @@ jobs:
             title+=("Tailscale to $TAILSCALE_VERSION"); parts+=("tailscale-$TAILSCALE_VERSION")
             {
               echo; echo "## Tailscale $old to $TAILSCALE_VERSION"
-              echo "The Windows MSI and the Mac installer were downloaded from Tailscale's package server and each"
-              echo "matched the .sha256 file the server publishes next to it. Tailscale's GitHub releases point to its"
+              echo "The Windows MSI and the Mac installer were downloaded from Tailscale's package server. Each matched"
+              echo "the .sha256 file the same server publishes next to it, which shows it arrived intact, not who built"
+              echo "it; the version's age comes from Tailscale's GitHub release. Tailscale's GitHub releases point to its"
               echo "changelog for the notes."
               notes https://github.com/tailscale/tailscale/releases/tag/v ' · [Changelog](https://tailscale.com/changelog)' "$TAILSCALE_COVERED"
             } >> "$body"
           fi
-          [ "${#title[@]}" -gt 0 ] || { echo '::error::Nothing to bump' >&2; exit 1; }
-          # Only these lines may change, and each file keeps its number of lines; each edited pin was checked above.
+          # Only these lines may change, and each file keeps its number of lines.
           allowed="^[-+](TD_RUSTDESK_VERSION='$v'|TD_RUSTDESK_SHA256_(ARM64|X86_64)='$h'|TD_TAILSCALE_VERSION='$v'"
           allowed+="|TD_TAILSCALE_PKG_SHA256='$h'|# Released $d\. Bump together with both SHA-256 values, .*"
           allowed+="|# Tailscale's Standalone installer from its own package server\. Released $d: .*"
@@ -227,19 +237,20 @@ jobs:
           [ -n "$files" ] || { echo '::error::The edit changed nothing' >&2; exit 1; }
           while IFS= read -r f; do
             [ "$f" = "$mac" ] || [ "$f" = "$win" ] || { echo "::error::Changed a file outside the pins: $f" >&2; exit 1; }
+            [ "$(git diff -U0 -- "$f" | grep -c -E '^\+([^+]|$)')" -eq "$(git diff -U0 -- "$f" | grep -c -E '^-([^-]|$)')" ] ||
+              { echo "::error::The edit added or removed lines in $f" >&2; exit 1; }
           done <<< "$files"
           if git diff -U0 | grep -E '^[-+]' | grep -v -E '^(\+\+\+|---) ' | grep -v -E "$allowed" | grep -q .; then
             echo '::error::Changed a line that is not a pin line' >&2; git diff >&2; exit 1
           fi
-          [ "$(git diff -U0 | grep -c -E '^\+[^+]')" -eq "$(git diff -U0 | grep -c -E '^-[^-]')" ] ||
-            { echo '::error::The edit added or removed lines' >&2; exit 1; }
           {
             echo
             echo '## Before merging'
             echo '- [ ] Close and reopen this PR: a PR opened by the workflow token does not start CI by itself.'
             echo '- [ ] Review the change and the notes above.'
-            echo '- [ ] Install on a real machine. The runner checked the hashes; the install scripts check the'
-            echo '      signatures (Authenticode on Windows, Apple team and notarization on the Mac) on every install.'
+            echo '- [ ] Install on a real machine. The runner checked only the hashes. The install scripts check the'
+            echo "      signatures on every install: Authenticode on Windows; on the Mac, Apple's signing team for both"
+            echo "      apps, and Apple's notarization for Tailscale's installer."
             echo "- [ ] Update the README's Status."
           } >> "$body"
           joined=$(printf '%s and ' "${title[@]}"); joined=${joined% and }
@@ -255,18 +266,24 @@ jobs:
           BRANCH: ${{ steps.edit.outputs.branch }}
           BODY: ${{ runner.temp }}/bump-body.md
         run: |
-          [[ $BRANCH =~ ^bump/(rustdesk-[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4})?-?(tailscale-[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4})?$ ]] ||
+          # BEGIN push-check (tests/tools/version-watch.bats runs this block too)
+          set -euo pipefail
+          ver='[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}'
+          [[ $BRANCH =~ ^bump/(rustdesk-$ver(-tailscale-$ver)?|tailscale-$ver)$ ]] ||
             { echo '::error::Refused the branch name' >&2; exit 1; }
-          [[ $TITLE =~ ^chore\(deps\):\ bump\ [A-Za-z0-9.\ ]+$ ]] || { echo '::error::Refused the title' >&2; exit 1; }
-          branch=$BRANCH
-          if [ -n "$(git ls-remote --heads origin "refs/heads/$branch")" ]; then
-            echo "The branch $branch already exists, so this bump was already proposed." | tee -a "$GITHUB_STEP_SUMMARY"
+          [[ $TITLE =~ ^chore\(deps\):\ bump\ (RustDesk\ to\ $ver(\ and\ Tailscale\ to\ $ver)?|Tailscale\ to\ $ver)$ ]] ||
+            { echo '::error::Refused the title' >&2; exit 1; }
+          # END push-check
+          if [ -n "$(git ls-remote --heads origin "refs/heads/$BRANCH")" ]; then
+            echo "The branch $BRANCH already exists, so this bump was already proposed." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          git switch -c "$branch"
+          git switch -c "$BRANCH"
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
             commit -q -am "$TITLE"
+          # The token reaches git through its environment, never its command line.
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
           echo "::add-mask::$auth"
-          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push -q origin "HEAD:refs/heads/$branch"
-          gh pr create --base main --head "$branch" --title "$TITLE" --body-file "$BODY" | tee -a "$GITHUB_STEP_SUMMARY"
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0='http.https://github.com/.extraheader' \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" git push -q origin "HEAD:refs/heads/$BRANCH"
+          gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file "$BODY" | tee -a "$GITHUB_STEP_SUMMARY"

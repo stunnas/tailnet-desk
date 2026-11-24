@@ -140,7 +140,7 @@ printf '%s\n' "${rows[@]}"
 if [ "$due" -eq 1 ]; then
   cat << 'EOF'
 
-The Version watch workflow opens a PR that does this. To bump a pin by hand instead, change in both `scripts/mac/tailnet-desk.sh` and `scripts/windows/tailnet-desk.psm1` its version,
+To bump a pin (the Version watch workflow opens a PR that does it), change in both `scripts/mac/tailnet-desk.sh` and `scripts/windows/tailnet-desk.psm1` its version,
 the release date in the comment above it, and the SHA-256 values next to it (for RustDesk on a Mac, both disk images:
 ARM64 and x86_64), taking the hashes from the official downloads. Then run the tests, try the install on a real
 machine, and update the README's Status.
