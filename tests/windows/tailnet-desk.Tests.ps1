@@ -478,12 +478,16 @@ Describe 'Test-RustDeskListening' {
         Should -Invoke -ModuleName tailnet-desk Start-Sleep -Times 0 -Exactly
         Should -Invoke -ModuleName tailnet-desk Write-Host -Times 0 -Exactly
     }
+    # The mocks write their errors with -ErrorAction Continue, as the real command does when called with
+    # SilentlyContinue: a mock body otherwise follows the caller's preference, which is Stop in CI.
     It 'takes "not found" for a closed port, but throws any other error at once' {
         Mock -ModuleName tailnet-desk Get-NetTCPConnection {
-            Write-Error -Message 'No matching objects found' -Category ObjectNotFound
+            Write-Error -Message 'No matching objects found' -Category ObjectNotFound -ErrorAction Continue
         }
         Test-RustDeskListening -Port 21118 -TimeoutSeconds 2 | Should -BeFalse
-        Mock -ModuleName tailnet-desk Get-NetTCPConnection { Write-Error -Message 'Access denied' -Category PermissionDenied }
+        Mock -ModuleName tailnet-desk Get-NetTCPConnection {
+            Write-Error -Message 'Access denied' -Category PermissionDenied -ErrorAction Continue
+        }
         { Test-RustDeskListening -Port 21118 } | Should -Throw '*Access denied*'
         Should -Invoke -ModuleName tailnet-desk Start-Sleep -Times 1 -Exactly
     }
