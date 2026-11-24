@@ -1,0 +1,64 @@
+# Version watch: every Monday (and on demand), compares the RustDesk and Tailscale versions the install scripts pin
+# with the latest releases on GitHub, using tools/check-versions.sh. When a newer release is at least two weeks old, it
+# opens an issue, or updates the open one, with the report. It never changes code: a bump needs new SHA-256 values
+# and a re-test, which stay by hand. Kept apart from CI, whose results never depend on the network.
+name: Version watch
+
+on:
+  schedule:
+    - cron: "41 7 * * 1" # Mondays, after CI's weekly run
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: version-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Compare pinned versions with the latest releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read # check out the scripts whose pins are read
+      issues: write # open or update the version issue
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Look up the latest releases and compare
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Only each release's tag and publish time come back; tools/check-versions.sh refuses anything not shaped
+          # like a version or a time before it reaches the report.
+          # A failed lookup stops the step here, before anything is compared.
+          rustdesk=$(gh api repos/rustdesk/rustdesk/releases/latest --jq '.tag_name + " " + .published_at')
+          tailscale=$(gh api repos/tailscale/tailscale/releases/latest --jq '.tag_name + " " + .published_at')
+          read -r rustdesk_tag rustdesk_time <<< "$rustdesk"
+          read -r tailscale_tag tailscale_time <<< "$tailscale"
+          set +e
+          tools/check-versions.sh "$rustdesk_tag" "$rustdesk_time" "$tailscale_tag" "$tailscale_time" \
+            > "$RUNNER_TEMP/report.md"
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -ge 2 ]; then exit "$code"; fi
+          echo "due=$code" >> "$GITHUB_OUTPUT"
+      - name: Open or update the issue
+        if: steps.check.outputs.due == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          title='Pinned RustDesk or Tailscale version is due a bump'
+          number=$(gh issue list --state open --limit 100 --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body-file "$RUNNER_TEMP/report.md"
+            echo "Updated issue #$number."
+          else
+            gh issue create --title "$title" --body-file "$RUNNER_TEMP/report.md"
+          fi
