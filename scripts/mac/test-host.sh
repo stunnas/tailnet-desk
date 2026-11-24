@@ -59,7 +59,7 @@ rustdesk_findings() {
   fi
   printf '%s\n' "$current" | td_host_findings "$given" "$ts_ip"
   if td_option_matches direct-server Y "$(printf '%s\n' "$current" | td_option_value direct-server)"; then
-    td_check "RustDesk listens on TCP $TD_DIRECT_PORT" 'nothing listening: quit and reopen RustDesk' td_port_listening "$TD_DIRECT_PORT"
+    td_check "RustDesk listens on TCP $TD_DIRECT_PORT" "nothing listening after $TD_LISTEN_WAIT seconds: quit and reopen RustDesk" td_port_listening "$TD_DIRECT_PORT"
   fi
 }
 

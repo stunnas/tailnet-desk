@@ -742,3 +742,53 @@ good_sha() { printf '%s' "$CURL_BODY" | /usr/bin/shasum -a 256 | awk '{ print $1
   [[ "$output" == *'Not a Tailscale address'* ]] || false
   [[ "$output" != *'Step 1'* ]] || false
 }
+
+# Runs td_port_listening with lsof and sleep pointed at stand-ins: lsof finds a listener from its $LISTEN_AFTER-th call
+# on (never when unset), and sleep only logs, so no real time passes.
+port_listening() {
+  B="$BATS_TEST_TMPDIR/bin"; mkdir -p "$B"
+  printf '#!/bin/bash\nprintf "lsof %%s\\n" "$*" >> "$STUB_LOG"\nn=$(grep -c "^lsof" "$STUB_LOG")\n[ -n "${LISTEN_AFTER-}" ] && [ "$n" -ge "$LISTEN_AFTER" ]\n' > "$B/lsof"
+  printf '#!/bin/bash\nprintf "sleep %%s\\n" "$*" >> "$STUB_LOG"\n' > "$B/sleep"
+  chmod +x "$B"/*
+  export B LIB STUB_LOG="$BATS_TEST_TMPDIR/stub.log"
+  : > "$STUB_LOG"
+  run /bin/bash -c '
+    set -euo pipefail
+    . "$LIB"
+    eval "$(declare -f | sed -e "s#/usr/sbin/lsof#$B/lsof#g" -e "s#/bin/sleep#$B/sleep#g")"
+    td_port_listening "$@"' x "$@"
+}
+
+@test "td_port_listening passes at once when the port already listens" {
+  LISTEN_AFTER=1 port_listening 21118
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -q '^lsof -nP -iTCP:21118 -sTCP:LISTEN$' "$STUB_LOG"
+  ! grep -q '^sleep' "$STUB_LOG" || false
+}
+
+@test "td_port_listening waits for RustDesk to open the port" {
+  LISTEN_AFTER=3 port_listening 21118
+  [ "$status" -eq 0 ]
+  [ "$output" = '  Waiting up to 30 seconds for RustDesk to listen on TCP 21118 ...' ]
+  [ "$(grep -c '^sleep 2$' "$STUB_LOG")" -eq 2 ]
+}
+
+@test "td_port_listening fails once the time is up" {
+  port_listening 21118 10
+  [ "$status" -eq 1 ]
+  [ "$(grep -c '^sleep 2$' "$STUB_LOG")" -eq 5 ]
+}
+
+@test "td_port_listening waits TD_LISTEN_WAIT seconds by default, and looks once with no time to wait" {
+  td_sh '[ "$TD_LISTEN_WAIT" -eq 30 ]'
+  [ "$status" -eq 0 ]
+  port_listening 21118
+  [ "$status" -eq 1 ]
+  [ "$(grep -c '^sleep 2$' "$STUB_LOG")" -eq 15 ]
+  port_listening 21118 0
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  [ "$(grep -c '^lsof' "$STUB_LOG")" -eq 1 ]
+  ! grep -q '^sleep' "$STUB_LOG" || false
+}
