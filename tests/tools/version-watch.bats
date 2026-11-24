@@ -196,7 +196,6 @@ changed() { git -C "$TMP/repo" diff -U0 -- "$1" | grep -E '^\+[^+]' | sed 's/^+/
   edit
   [ "$status" -eq 0 ]
   grep -qx 'branch=bump/rustdesk-1.5.5' "$GITHUB_OUTPUT"
-  [ "$status" -eq 0 ]
   push_check "$(sed -n 's/^branch=//p' "$GITHUB_OUTPUT")" "$(sed -n 's/^title=//p' "$GITHUB_OUTPUT")"
   [ "$status" -eq 0 ]
   for branch in 'bump/' 'bump/-' 'bump/x;y' 'main' 'bump/tailscale-1.104.5;id' 'bump/tailscale-1.104.5-rustdesk-1.5.5'; do

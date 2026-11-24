@@ -37,6 +37,7 @@ rd_repo=$(setting TD_RUSTDESK_REPO)
 [[ $ts_base =~ ^https://[a-z0-9.-]+(/[A-Za-z0-9._-]+)*$ ]] || die "TD_TAILSCALE_PKG_BASE isn't an https address: $ts_base"
 [[ $rd_repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "TD_RUSTDESK_REPO isn't owner/repo: $rd_repo"
 
+# The same two weeks as MIN_AGE_DAYS in tools/check-versions.sh; change both together.
 two_weeks_back=$(date -u -d '14 days ago' +%Y-%m-%d 2>/dev/null || date -u -v-14d +%Y-%m-%d)
 cutoff=${CUTOFF:-$two_weeks_back}
 [[ $cutoff =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || die "CUTOFF isn't YYYY-MM-DD: $cutoff"

@@ -17,7 +17,7 @@
 set -euo pipefail
 
 [ -z "${TARGETS_FILE-}" ] || : > "$TARGETS_FILE"
-MIN_AGE_DAYS=14 # the repo bumps pins only to releases at least two weeks old
+MIN_AGE_DAYS=14 # the repo bumps pins only to releases at least two weeks old; tools/prepare-bump.sh uses the same
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 mac="$root/scripts/mac/tailnet-desk.sh"
