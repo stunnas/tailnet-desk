@@ -23,6 +23,7 @@ Set-StrictMode -Version 3.0
 $script:Setting = [pscustomobject]@{
     DirectPort      = 21118                 # RustDesk direct IP access (TCP)
     ListenWaitSeconds = 30                  # how long the check waits for RustDesk to open DirectPort (docs/host-windows.md says 30)
+    SignInWaitSeconds = 600                 # how long install-host.ps1 waits for the Tailscale sign-in (its help and docs/host-windows.md say 10 minutes)
     AdapterName     = 'Tailscale'           # Tailscale's network adapter on Windows
     ServiceName     = 'RustDesk'
     RuleNames       = @('RustDesk Service', 'rustdesk.exe')   # names RustDesk's installer gives its firewall rules
@@ -152,7 +153,7 @@ function Resolve-ControllerIp {
 function Get-WhitelistChange {
     <#
     .SYNOPSIS
-    What a run without -ControllerIp does to the entries it can't keep (not one Tailscale address, or this PC's own).
+    What a run with no controller address given or typed does to the entries it can't keep (not one Tailscale address, or this PC's own).
     With controllers kept, the whitelist is rewritten to just those, so the others are removed. With none kept,
     direct IP access is turned off and the whitelist isn't rewritten, so the others stay in RustDesk.
     #>
@@ -714,6 +715,90 @@ function Get-TailscaleIPv4 {
     $out = (& $exe ip -4 2>$null | Out-String).Trim()
     if (Test-TailscaleIPv4 -Address $out) { return $out }
     return $null
+}
+
+function Wait-TailscaleIPv4 {
+    <#
+    .SYNOPSIS
+    This PC's Tailscale address, waiting up to TimeoutSeconds for you to sign in to Tailscale, or $null when the time
+    runs out. Says once how to sign in, then looks again every 3 seconds.
+    #>
+    [CmdletBinding()]
+    param([ValidateRange(0, 3600)][int]$TimeoutSeconds = $script:Setting.SignInWaitSeconds)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $said = $false
+    while ($true) {
+        $ip = Get-TailscaleIPv4
+        if ($ip) { return $ip }
+        if ((Get-Date) -ge $deadline) { return $null }
+        if (-not $said) {
+            $minutes = [int][math]::Ceiling($TimeoutSeconds / 60)
+            $unit = if ($minutes -eq 1) { 'minute' } else { 'minutes' }
+            Write-Host 'Tailscale is installed but not signed in (or not running).' -ForegroundColor Yellow
+            Write-Host 'Click the Tailscale icon in the system tray (near the clock), choose Log in, and sign in. If the icon'
+            Write-Host "isn't there, open Tailscale from the Start menu first."
+            Write-Host "Waiting up to $minutes $unit for the sign-in. The script goes on by itself once you're signed in."
+            $said = $true
+        }
+        Start-Sleep -Seconds 3
+    }
+}
+
+function Read-ControllerIp {
+    <#
+    .SYNOPSIS
+    Asks for the controllers' Tailscale addresses, comma-separated, and asks again until they pass the same checks as
+    -ControllerIp (Resolve-ControllerIp). Pressing Enter gives none, which keeps the controllers already whitelisted
+    (-Kept) or, with none, leaves direct IP access off.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [AllowEmptyString()][string]$OwnIp = '',
+        [AllowEmptyCollection()][string[]]$Kept = @()
+    )
+    $keptList = @($Kept)
+    if ($keptList.Count -gt 0) {
+        Write-Host "Controllers already on the whitelist: $($keptList -join ', ')"
+        $prompt = 'Press Enter to keep them, or type the controller addresses to use instead'
+        $enter = 'press Enter to keep them'
+    } else {
+        Write-Host "The controller's address is its 100.x address in the Tailscale admin console (not this PC's)."
+        $prompt = "Type the controller's Tailscale address, or press Enter to skip for now"
+        $enter = 'press Enter to skip'
+    }
+    while ($true) {
+        $answer = @(ConvertTo-AddressList -Address (Read-Host -Prompt $prompt))
+        if ($answer.Count -eq 0) { return @() }
+        try { return (Resolve-ControllerIp -ControllerIp $answer -OwnIp $OwnIp) }
+        catch { Write-Host "  $($_.Exception.Message) Type it again, or $enter." -ForegroundColor Yellow }
+    }
+}
+
+function Get-ControllerChoice {
+    <#
+    .SYNOPSIS
+    Which controllers install-host.ps1 whitelists, and where they came from. Addresses in -Given (from -ControllerIp)
+    are used without asking. Otherwise it asks (Read-ControllerIp): typed addresses replace the whitelist, and Enter
+    keeps its single Tailscale addresses that aren't this PC's. Given in the result is what was given or typed on
+    this run, none when Enter kept the old ones. Throws on an invalid -Given address, as Resolve-ControllerIp does.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [AllowEmptyCollection()][string[]]$Given = @(),
+        [AllowEmptyString()][string]$CurrentWhitelist = '',
+        [AllowEmptyString()][string]$OwnIp = ''
+    )
+    $list = @(ConvertTo-AddressList -Address $Given)
+    if ($list.Count -gt 0) {
+        $chosen = @(Resolve-ControllerIp -ControllerIp $list -OwnIp $OwnIp)
+        return [pscustomobject]@{ Controllers = $chosen; Given = $chosen; Source = 'from -ControllerIp' }
+    }
+    $kept = @(Resolve-ControllerIp -CurrentWhitelist $CurrentWhitelist -OwnIp $OwnIp)
+    $typed = @(Read-ControllerIp -OwnIp $OwnIp -Kept $kept)
+    if ($typed.Count -gt 0) { return [pscustomobject]@{ Controllers = $typed; Given = $typed; Source = 'typed in' } }
+    return [pscustomobject]@{ Controllers = $kept; Given = @(); Source = 'kept from before' }
 }
 
 function Get-RustDeskOption {

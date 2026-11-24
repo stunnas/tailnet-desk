@@ -524,6 +524,142 @@ Describe 'Get-ListeningFinding' {
     }
 }
 
+Describe 'Wait-TailscaleIPv4' {
+    BeforeEach {
+        # A clock that moves by each sleep's seconds, so the waiting is tested without real time passing.
+        $script:now = [datetime]'2026-01-01'
+        Mock -ModuleName tailnet-desk Get-Date { $script:now }
+        Mock -ModuleName tailnet-desk Start-Sleep { $script:now = $script:now.AddSeconds($Seconds) }
+        Mock -ModuleName tailnet-desk Write-Host { }
+    }
+    It 'gives the address at once, and says nothing, when Tailscale is signed in' {
+        Mock -ModuleName tailnet-desk Get-TailscaleIPv4 { '100.64.0.10' }
+        Wait-TailscaleIPv4 | Should -Be '100.64.0.10'
+        Should -Invoke -ModuleName tailnet-desk Start-Sleep -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Write-Host -Times 0 -Exactly
+    }
+    It 'says once how to sign in, then waits for the sign-in' {
+        $script:looks = 0
+        Mock -ModuleName tailnet-desk Get-TailscaleIPv4 { $script:looks++; if ($script:looks -ge 4) { '100.64.0.10' } }
+        Wait-TailscaleIPv4 | Should -Be '100.64.0.10'
+        $script:looks | Should -Be 4
+        Should -Invoke -ModuleName tailnet-desk Write-Host -Times 1 -Exactly -ParameterFilter {
+            "$Object" -eq "Waiting up to 10 minutes for the sign-in. The script goes on by itself once you're signed in."
+        }
+        Should -Invoke -ModuleName tailnet-desk Write-Host -Times 1 -Exactly -ParameterFilter { "$Object" -like '*choose Log in*' }
+    }
+    It 'gives nothing once the time is up' {
+        Mock -ModuleName tailnet-desk Get-TailscaleIPv4 { $null }
+        Wait-TailscaleIPv4 -TimeoutSeconds 30 | Should -BeNullOrEmpty
+        Should -Invoke -ModuleName tailnet-desk Start-Sleep -Times 10 -Exactly -ParameterFilter { $Seconds -eq 3 }
+        Should -Invoke -ModuleName tailnet-desk Write-Host -Times 1 -Exactly -ParameterFilter { "$Object" -like 'Waiting up to 1 minute for*' }
+    }
+    It 'waits the setting''s 10 minutes by default' {
+        (Get-TailnetDeskSetting).SignInWaitSeconds | Should -Be 600
+        Mock -ModuleName tailnet-desk Get-TailscaleIPv4 { $null }
+        Wait-TailscaleIPv4 | Should -BeNullOrEmpty
+        Should -Invoke -ModuleName tailnet-desk Start-Sleep -Times 200 -Exactly
+    }
+    It 'looks once and says nothing with no time to wait' {
+        Mock -ModuleName tailnet-desk Get-TailscaleIPv4 { $null }
+        Wait-TailscaleIPv4 -TimeoutSeconds 0 | Should -BeNullOrEmpty
+        Should -Invoke -ModuleName tailnet-desk Get-TailscaleIPv4 -Times 1 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Start-Sleep -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Write-Host -Times 0 -Exactly
+    }
+}
+
+Describe 'Read-ControllerIp' {
+    BeforeEach {
+        # Read-Host gives the next answer from $script:answers each time it's asked.
+        $script:asked = 0
+        Mock -ModuleName tailnet-desk Read-Host { $script:answers[$script:asked++] }
+        Mock -ModuleName tailnet-desk Write-Host { }
+    }
+    It 'gives the typed address' {
+        $script:answers = @(' 100.64.0.11 ')
+        @(Read-ControllerIp -OwnIp '100.64.0.10') | Should -Be @('100.64.0.11')
+        $script:asked | Should -Be 1
+        Should -Invoke -ModuleName tailnet-desk Read-Host -Times 1 -Exactly -ParameterFilter { $Prompt -like '*press Enter to skip for now' }
+    }
+    It 'gives several comma-separated addresses, without repeats' {
+        $script:answers = @('100.64.0.11, 100.64.0.12,100.64.0.11')
+        @(Read-ControllerIp -OwnIp '100.64.0.10') | Should -Be @('100.64.0.11', '100.64.0.12')
+    }
+    It 'gives nothing when Enter is pressed' {
+        $script:answers = @('')
+        @(Read-ControllerIp -OwnIp '100.64.0.10').Count | Should -Be 0
+    }
+    It 'asks again after an address that is not a single Tailscale address, and says why' {
+        $script:answers = @('192.168.0.10', '100.64.0.0/10', '100.64.0.11')
+        @(Read-ControllerIp -OwnIp '100.64.0.10') | Should -Be @('100.64.0.11')
+        $script:asked | Should -Be 3
+        Should -Invoke -ModuleName tailnet-desk Write-Host -Times 1 -Exactly -ParameterFilter {
+            "$Object" -like "*Not a Tailscale address: '192.168.0.10'*Type it again, or press Enter to skip."
+        }
+    }
+    It 'asks again after this PC''s own address' {
+        $script:answers = @('100.64.0.10', '')
+        @(Read-ControllerIp -OwnIp '100.64.0.10').Count | Should -Be 0
+        $script:asked | Should -Be 2
+        Should -Invoke -ModuleName tailnet-desk Write-Host -Times 1 -Exactly -ParameterFilter { "$Object" -like "*'100.64.0.10' is this PC's own address*" }
+    }
+    It 'names the controllers already whitelisted, and Enter keeps them' {
+        $script:answers = @('')
+        @(Read-ControllerIp -OwnIp '100.64.0.10' -Kept @('100.64.0.11')).Count | Should -Be 0
+        Should -Invoke -ModuleName tailnet-desk Write-Host -Times 1 -Exactly -ParameterFilter { "$Object" -eq 'Controllers already on the whitelist: 100.64.0.11' }
+        Should -Invoke -ModuleName tailnet-desk Read-Host -Times 1 -Exactly -ParameterFilter { $Prompt -like 'Press Enter to keep them*' }
+    }
+    It 'treats an ended input like Enter' {
+        $script:answers = @()
+        @(Read-ControllerIp -OwnIp '100.64.0.10').Count | Should -Be 0
+    }
+    It 'replaces the controllers already whitelisted with typed ones, and says Enter keeps them after a bad address' {
+        $script:answers = @('bad', '100.64.0.12')
+        @(Read-ControllerIp -OwnIp '100.64.0.10' -Kept @('100.64.0.11')) | Should -Be @('100.64.0.12')
+        Should -Invoke -ModuleName tailnet-desk Write-Host -Times 1 -Exactly -ParameterFilter {
+            "$Object" -like "*Not a Tailscale address: 'bad'*Type it again, or press Enter to keep them."
+        }
+    }
+}
+
+Describe 'Get-ControllerChoice' {
+    BeforeEach {
+        Mock -ModuleName tailnet-desk Read-ControllerIp { @() }
+    }
+    It 'uses -ControllerIp without asking' {
+        $c = Get-ControllerChoice -Given @('100.64.0.11') -CurrentWhitelist '100.64.0.12' -OwnIp '100.64.0.10'
+        @($c.Controllers) | Should -Be @('100.64.0.11')
+        @($c.Given) | Should -Be @('100.64.0.11')
+        $c.Source | Should -Be 'from -ControllerIp'
+        Should -Invoke -ModuleName tailnet-desk Read-ControllerIp -Times 0 -Exactly
+    }
+    It 'refuses this PC''s own address in -ControllerIp' {
+        { Get-ControllerChoice -Given @('100.64.0.10') -OwnIp '100.64.0.10' } | Should -Throw "*this PC's own address*"
+    }
+    It 'uses typed addresses in place of the whitelist' {
+        Mock -ModuleName tailnet-desk Read-ControllerIp { @('100.64.0.12') }
+        $c = Get-ControllerChoice -CurrentWhitelist '100.64.0.11' -OwnIp '100.64.0.10'
+        @($c.Controllers) | Should -Be @('100.64.0.12')
+        @($c.Given) | Should -Be @('100.64.0.12')
+        $c.Source | Should -Be 'typed in'
+    }
+    It 'keeps the valid controllers already whitelisted when Enter is pressed, and offers only those' {
+        $c = Get-ControllerChoice -CurrentWhitelist '100.64.0.11,100.64.0.0/10,100.64.0.10' -OwnIp '100.64.0.10'
+        @($c.Controllers) | Should -Be @('100.64.0.11')
+        @($c.Given).Count | Should -Be 0
+        $c.Source | Should -Be 'kept from before'
+        Should -Invoke -ModuleName tailnet-desk Read-ControllerIp -Times 1 -Exactly -ParameterFilter {
+            $OwnIp -eq '100.64.0.10' -and (@($Kept) -join ',') -eq '100.64.0.11'
+        }
+    }
+    It 'gives no controllers when there are none to keep and Enter is pressed' {
+        $c = Get-ControllerChoice -OwnIp '100.64.0.10'
+        @($c.Controllers).Count | Should -Be 0
+        @($c.Given).Count | Should -Be 0
+    }
+}
+
 Describe 'New-PrivateFolder' {
     It 'refuses a folder that is a junction or link, before reading its owner or changing permissions' {
         Mock -ModuleName tailnet-desk Get-ProgramDataPath { $TestDrive }
