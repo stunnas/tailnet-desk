@@ -64,9 +64,10 @@ td_install_rustdesk
 
 step "Step 3 of 6: RustDesk's background service and permissions"
 if ! td_wait_rustdesk_service; then
-  echo "RustDesk's service still isn't installed and running. Install it as above, and allow RustDesk under Screen &"
-  echo 'System Audio Recording and Accessibility in Privacy & Security, then run this script again. If you clicked'
-  echo 'Install and it still is not running, restart the Mac first.'
+  echo "RustDesk's service still isn't installed and running. Install it as above. Then, in System Settings, allow"
+  echo 'RustDesk under Screen & System Audio Recording and Accessibility in Privacy & Security, and check it is allowed'
+  echo 'in the background under General > Login Items & Extensions: the next run does not ask about those. Then run this'
+  echo "script again. If you clicked Install and it still isn't running, restart the Mac first."
   exit 2
 fi
 echo 'RustDesk is running. Your Mac password may be asked: RustDesk only shows its settings to an administrator.'

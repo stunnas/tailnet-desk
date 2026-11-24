@@ -504,8 +504,8 @@ td_rustdesk_server_running() {
 
 # Waits about $1 seconds (default TD_SERVICE_WAIT, looking every 3 seconds) for RustDesk's system service to be
 # installed and running, after saying once how to install it. If it had to wait, it then asks you to allow RustDesk's
-# two macOS permissions and in the background, and to press Return, because a script can't see those. Fails when the
-# time runs out.
+# two macOS permissions, to check it's allowed in the background, and to press Return, because a script can't see
+# those. Fails when the time runs out.
 td_wait_rustdesk_service() {
   local timeout=${1:-$TD_SERVICE_WAIT} waited=0 answer
   while ! { td_rustdesk_starts_at_boot && td_rustdesk_server_running; }; do
