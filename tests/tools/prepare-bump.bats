@@ -159,6 +159,9 @@ prepare() {
   CUTOFF=soon prepare 'Tailscale 1.104.5 2026-11-03 1.104.5:2026-11-03'
   [ "$status" -eq 2 ]
   grep -qF "CUTOFF isn't YYYY-MM-DD" <<< "$output"
+  CUTOFF=2999-01-01 prepare 'Tailscale 1.104.5 2026-11-03 1.104.5:2026-11-03'
+  [ "$status" -eq 2 ]
+  grep -qF "CUTOFF can't be later than two weeks back" <<< "$output"
 }
 
 @test "prints exactly the keys the workflow's watch job passes on" {

@@ -419,6 +419,16 @@ STUB
   [ "$mac" = "$win" ]
 }
 
+@test "the Mac and Windows scripts download from the same RustDesk repo and Tailscale server" {
+  rd_mac=$(sed -n "s/^TD_RUSTDESK_REPO='\([^']*\)'.*/\1/p" "$LIB")
+  rd_win=$(sed -n "s/^ *RustDeskRepo *= *'\([^']*\)'.*/\1/p" "$ROOT/scripts/windows/tailnet-desk.psm1")
+  ts_mac=$(sed -n "s/^TD_TAILSCALE_PKG_BASE='\([^']*\)'.*/\1/p" "$LIB")
+  ts_win=$(sed -n "s/^ *TailscalePkgBase *= *'\([^']*\)'.*/\1/p" "$ROOT/scripts/windows/tailnet-desk.psm1")
+  [ -n "$rd_mac" ] && [ -n "$ts_mac" ]
+  [ "$rd_mac" = "$rd_win" ]
+  [ "$ts_mac" = "$ts_win" ]
+}
+
 @test "td_tailscale_pkg_name names the pinned installer, and its SHA-256 is pinned" {
   td td_tailscale_pkg_name
   [ -n "$TS_VERSION" ]

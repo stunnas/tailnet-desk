@@ -18,7 +18,8 @@
 #   The targets file is check-versions.sh's TARGETS_FILE. Prints, for each due app (rustdesk, tailscale):
 #   <app>_version, <app>_date, <app>_covered, then the hashes: tailscale_msi_sha256 and tailscale_pkg_sha256;
 #   rustdesk_exe_sha256, rustdesk_dmg_arm64_sha256 and rustdesk_dmg_x86_64_sha256. CUTOFF (YYYY-MM-DD, default 14
-#   days before today in UTC) is the latest upload date a RustDesk asset may have. Exit 0, or 2 when anything is off.
+#   days before today in UTC, and never later) is the latest upload date a RustDesk asset may have; tests set it to a
+#   fixed past date. Exit 0, or 2 when anything is off.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -36,13 +37,17 @@ rd_repo=$(setting TD_RUSTDESK_REPO)
 [[ $ts_base =~ ^https://[a-z0-9.-]+(/[A-Za-z0-9._-]+)*$ ]] || die "TD_TAILSCALE_PKG_BASE isn't an https address: $ts_base"
 [[ $rd_repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "TD_RUSTDESK_REPO isn't owner/repo: $rd_repo"
 
-cutoff=${CUTOFF:-$(date -u -d '14 days ago' +%Y-%m-%d 2>/dev/null || date -u -v-14d +%Y-%m-%d)}
+two_weeks_back=$(date -u -d '14 days ago' +%Y-%m-%d 2>/dev/null || date -u -v-14d +%Y-%m-%d)
+cutoff=${CUTOFF:-$two_weeks_back}
 [[ $cutoff =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || die "CUTOFF isn't YYYY-MM-DD: $cutoff"
+[[ ! $cutoff > $two_weeks_back ]] || die "CUTOFF can't be later than two weeks back ($two_weeks_back)"
 mkdir -p "$dir"
 
-is_version() { [[ $1 =~ ^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$ ]]; }
-is_date() { [[ $1 =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; }
-is_covered() { [[ $1 =~ ^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}:[0-9]{4}-[0-9]{2}-[0-9]{2}(,[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}:[0-9]{4}-[0-9]{2}-[0-9]{2})*$ ]]; }
+ver='[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}'
+day='[0-9]{4}-[0-9]{2}-[0-9]{2}'
+is_version() { [[ $1 =~ ^$ver$ ]]; }
+is_date() { [[ $1 =~ ^$day$ ]]; }
+is_covered() { [[ $1 =~ ^$ver:$day(,$ver:$day)*$ ]]; }
 is_sha() { [[ $1 =~ ^[0-9a-f]{64}$ ]]; }
 
 sha_of() { shasum -a 256 "$1" | cut -d' ' -f1; }

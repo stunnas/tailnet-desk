@@ -170,12 +170,14 @@ changed() { git -C "$TMP/repo" diff -U0 -- "$1" | grep -E '^\+[^+]' | sed 's/^+/
 
 @test "stops when the edit leaves a file with more or fewer lines" {
   tailscale
-  # A second, allowed-looking pin line in the working copy: the line allowlist passes it, the line count doesn't.
+  # One allowed-looking pin line more in the Windows copy and one less in the Mac copy: the line allowlist passes
+  # both and the two files together still balance, so only the per-file count stops it.
   sed -i.bak "/^    RustDeskVersion = /p" "$TMP/repo/scripts/windows/tailnet-desk.psm1"
-  rm "$TMP/repo/scripts/windows/tailnet-desk.psm1.bak"
+  sed -i.bak "/^TD_RUSTDESK_VERSION=/d" "$TMP/repo/scripts/mac/tailnet-desk.sh"
+  rm "$TMP/repo/scripts/windows/tailnet-desk.psm1.bak" "$TMP/repo/scripts/mac/tailnet-desk.sh.bak"
   edit
   [ "$status" -eq 1 ]
-  grep -q 'The edit added or removed lines in scripts/windows/tailnet-desk.psm1' <<< "$output"
+  grep -q 'The edit added or removed lines in scripts/mac/tailnet-desk.sh' <<< "$output"
 }
 
 @test "the push step accepts the branch and title the pin edit makes, and nothing else" {
@@ -186,6 +188,14 @@ changed() { git -C "$TMP/repo" diff -U0 -- "$1" | grep -E '^\+[^+]' | sed 's/^+/
   [ "$status" -eq 0 ]
   : > "$GITHUB_OUTPUT"; rustdesk
   edit
+  [ "$status" -eq 0 ]
+  push_check "$(sed -n 's/^branch=//p' "$GITHUB_OUTPUT")" "$(sed -n 's/^title=//p' "$GITHUB_OUTPUT")"
+  [ "$status" -eq 0 ]
+  git -C "$TMP/repo" checkout -q .; : > "$GITHUB_OUTPUT"
+  unset TAILSCALE_VERSION TAILSCALE_DATE TAILSCALE_COVERED TAILSCALE_MSI_SHA256 TAILSCALE_PKG_SHA256
+  edit
+  [ "$status" -eq 0 ]
+  grep -qx 'branch=bump/rustdesk-1.5.5' "$GITHUB_OUTPUT"
   [ "$status" -eq 0 ]
   push_check "$(sed -n 's/^branch=//p' "$GITHUB_OUTPUT")" "$(sed -n 's/^title=//p' "$GITHUB_OUTPUT")"
   [ "$status" -eq 0 ]

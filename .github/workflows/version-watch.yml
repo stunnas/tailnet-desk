@@ -198,7 +198,7 @@ jobs:
             {
               echo; echo "## RustDesk $old to $RUSTDESK_VERSION"
               echo "The Windows installer and both Mac disk images were downloaded from RustDesk's GitHub release. Each"
-              echo "was uploaded at least two weeks ago and matched the SHA-256 digest GitHub shows for it."
+              echo "was uploaded on or before the day two weeks back and matched the SHA-256 digest GitHub shows for it."
               notes https://github.com/rustdesk/rustdesk/releases/tag/ '' "$RUSTDESK_COVERED"
             } >> "$body"
           fi
@@ -237,8 +237,8 @@ jobs:
           [ -n "$files" ] || { echo '::error::The edit changed nothing' >&2; exit 1; }
           while IFS= read -r f; do
             [ "$f" = "$mac" ] || [ "$f" = "$win" ] || { echo "::error::Changed a file outside the pins: $f" >&2; exit 1; }
-            [ "$(git diff -U0 -- "$f" | grep -c -E '^\+([^+]|$)')" -eq "$(git diff -U0 -- "$f" | grep -c -E '^-([^-]|$)')" ] ||
-              { echo "::error::The edit added or removed lines in $f" >&2; exit 1; }
+            read -r added removed _ <<< "$(git diff --numstat -- "$f")"
+            [ "$added" = "$removed" ] || { echo "::error::The edit added or removed lines in $f" >&2; exit 1; }
           done <<< "$files"
           if git diff -U0 | grep -E '^[-+]' | grep -v -E '^(\+\+\+|---) ' | grep -v -E "$allowed" | grep -q .; then
             echo '::error::Changed a line that is not a pin line' >&2; git diff >&2; exit 1
