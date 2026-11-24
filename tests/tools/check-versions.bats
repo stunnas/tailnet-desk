@@ -110,7 +110,7 @@ releases() {
 }
 
 @test "leaves out tags not shaped like a version, and says how many" {
-  releases "$RD" 'nightly 2026-11-20T00:00:00Z' '1.5.3 2026-11-09T09:43:52Z' '1.2.3-2 2023-09-01T00:00:00Z'
+  releases "$RD" 'nightly 2026-11-20T00:00:00Z' '' '1.5.3 2026-11-09T09:43:52Z' '1.2.3-2 2023-09-01T00:00:00Z'
   run "$CHECK" "$RD" "$TS"
   [ "$status" -eq 0 ]
   grep -qF '| RustDesk | 1.5.3 | 1.5.3 (2026-11-09) | Up to date. Left out 2 tag(s) not shaped like a version |' <<< "$output"
@@ -118,6 +118,14 @@ releases() {
   run "$CHECK" "$RD" "$TS"
   [ "$status" -eq 2 ]
   grep -qF 'RustDesk: no release with a version tag listed' <<< "$output"
+}
+
+@test "reads a last line with no newline, and parts with leading zeros as numbers" {
+  printf '1.05.10 2026-01-01T00:00:00Z' > "$RD"
+  pins 1.5.9 1.104.4
+  run "$CHECK" "$RD" "$TS"
+  [ "$status" -eq 1 ]
+  grep -qF '| RustDesk | 1.5.9 | 1.05.10 (2026-01-01) | **Bump due**: to 1.05.10' <<< "$output"
 }
 
 @test "refuses a release list that is empty, missing or has extra words" {

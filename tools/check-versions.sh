@@ -26,11 +26,13 @@ shown() { printf '%s' "$1" | tr -cd 'A-Za-z0-9._-' | cut -c 1-40; }
 
 [ "$#" -eq 2 ] || die 'needs 2 arguments: the RustDesk and Tailscale release files (see the header)'
 
-# A version from a tag: 1.2.3, with an optional leading v; anything else is refused, since it comes from outside.
+# 0 when tag $1 is a version: 1.2.3, with an optional leading v.
+is_version() { [[ ${1#v} =~ ^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$ ]]; }
+
+# The version in tag $1; anything not shaped like one is refused, since it comes from outside.
 version_of() {
-  local v=${1#v}
-  [[ $v =~ ^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$ ]] || die "not a release version: '$(shown "$1")'"
-  echo "$v"
+  is_version "$1" || die "not a release version: '$(shown "$1")'"
+  echo "${1#v}"
 }
 
 # Days since 1970-01-01 for a real YYYY-MM-DD date, in plain arithmetic so it works the same with GNU and BSD date.
@@ -88,8 +90,9 @@ check() {
   local latest='' latest_date='' latest_age=0 target='' target_age=0 state
   [ -f "$file" ] || die "$app: no such file: $file"
   while IFS=' ' read -r tag time rest || [ -n "$tag" ]; do
+    [ -n "$tag" ] || continue
     [ -z "$rest" ] || die "$app: a release line has more than a tag and a time"
-    if ! [[ ${tag#v} =~ ^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$ ]]; then skipped=$((skipped + 1)); continue; fi
+    if ! is_version "$tag"; then skipped=$((skipped + 1)); continue; fi
     version=${tag#v}
     [[ ${time-} =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] ||
       die "$app $version: not a publish time: '$(shown "${time-}")'"

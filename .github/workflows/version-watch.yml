@@ -2,8 +2,8 @@
 # with their releases on GitHub, using tools/check-versions.sh (its header says when a bump is due). A due bump fails
 # the run, with the report in the run's summary: GitHub emails a failed scheduled run to whoever last changed this
 # schedule. It has read-only permissions and never changes code: a bump needs new SHA-256 values and a re-test, which
-# stay by hand. Kept apart from CI, whose results never depend on the network. GitHub pauses schedules in a public
-# repo after 60 days without activity; run it by hand to check.
+# stay by hand. Kept apart from CI, whose results never depend on the network. GitHub turns off the schedule in a
+# public repo after 60 days without activity: turn the workflow back on in the Actions tab, then run it by hand.
 name: Version watch
 
 on:
@@ -31,19 +31,22 @@ jobs:
           persist-credentials: false
       - name: Check the comparison on known releases first
         run: |
-          # A made-up release far newer and older than two weeks must make a bump due (exit 1), and releases older
-          # than the pins must not (exit 0), so a run that reports nothing really did compare.
+          # A made-up release far newer than the pins and older than two weeks must make a bump due (exit 1, with
+          # "Bump due" in the report, so a crash can't pass for it), and releases older than the pins must not
+          # (exit 0), so a run that reports nothing really did compare.
           printf '99.0.0 2000-01-01T00:00:00Z\n' > "$RUNNER_TEMP/due.txt"
           printf '0.0.1 2000-01-01T00:00:00Z\n' > "$RUNNER_TEMP/old.txt"
-          code=0; tools/check-versions.sh "$RUNNER_TEMP/due.txt" "$RUNNER_TEMP/old.txt" > /dev/null || code=$?
+          code=0; tools/check-versions.sh "$RUNNER_TEMP/due.txt" "$RUNNER_TEMP/old.txt" > "$RUNNER_TEMP/due.md" || code=$?
           [ "$code" -eq 1 ] || { echo "Expected a bump due (exit 1), got exit $code" >&2; exit 1; }
+          grep -qF '| RustDesk |' "$RUNNER_TEMP/due.md" && grep -qF '**Bump due**: to 99.0.0' "$RUNNER_TEMP/due.md"
           tools/check-versions.sh "$RUNNER_TEMP/old.txt" "$RUNNER_TEMP/old.txt" > /dev/null
       - name: Look up the releases and compare
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # The newest 100 published releases, drafts and pre-releases left out, as "tag time" lines. A failed lookup
-          # stops the step here. tools/check-versions.sh refuses any line not shaped like a version and a time.
+          # stops the step here. tools/check-versions.sh leaves out tags not shaped like a version and refuses bad
+          # times.
           releases() {
             gh api "repos/$1/releases?per_page=100" \
               --jq '.[] | select((.draft or .prerelease) | not) | .tag_name + " " + .published_at' > "$2"
@@ -55,4 +58,5 @@ jobs:
             code=$?
           tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/report.md"
           if [ "$code" -eq 1 ]; then echo '::error::A pinned version is due a bump: see the report in the summary.'; fi
+          if [ "$code" -ge 2 ]; then echo '::error::The comparison stopped: see this step'"'"'s log for why.'; fi
           exit "$code"
