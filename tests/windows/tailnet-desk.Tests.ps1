@@ -456,7 +456,9 @@ Describe 'Test-RustDeskListening' {
         Mock -ModuleName tailnet-desk Get-NetTCPConnection { $script:looks++; if ($script:looks -ge 3) { [pscustomobject]@{ LocalPort = 21118 } } }
         Test-RustDeskListening -Port 21118 | Should -BeTrue
         $script:looks | Should -Be 3
-        Should -Invoke -ModuleName tailnet-desk Write-Host -Times 1 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Write-Host -Times 1 -Exactly -ParameterFilter {
+            "$Object" -eq '  Waiting up to 30 seconds for RustDesk to listen on TCP 21118 ...'
+        }
     }
     It 'fails once the time is up' {
         Mock -ModuleName tailnet-desk Get-NetTCPConnection { }
@@ -489,6 +491,7 @@ Describe 'Test-RustDeskListening' {
     It 'gets "not found" from the real Get-NetTCPConnection for a closed port' -Skip:([Environment]::OSVersion.Platform -ne 'Win32NT') {
         $closed = 1..200 | ForEach-Object { 40000 + $_ } |
             Where-Object { -not (Get-NetTCPConnection -LocalPort $_ -ErrorAction SilentlyContinue) } | Select-Object -First 1
+        $closed | Should -Not -BeNullOrEmpty
         $null = Get-NetTCPConnection -LocalPort $closed -State Listen -ErrorAction SilentlyContinue -ErrorVariable lookupError
         @($lookupError).Count | Should -BeGreaterThan 0
         { Assert-OnlyNotFound -ErrorRecord $lookupError } | Should -Not -Throw

@@ -22,7 +22,7 @@ Set-StrictMode -Version 3.0
 
 $script:Setting = [pscustomobject]@{
     DirectPort      = 21118                 # RustDesk direct IP access (TCP)
-    ListenWaitSeconds = 30                  # how long the check waits for RustDesk to open DirectPort
+    ListenWaitSeconds = 30                  # how long the check waits for RustDesk to open DirectPort (docs/host-windows.md says 30)
     AdapterName     = 'Tailscale'           # Tailscale's network adapter on Windows
     ServiceName     = 'RustDesk'
     RuleNames       = @('RustDesk Service', 'rustdesk.exe')   # names RustDesk's installer gives its firewall rules
@@ -767,7 +767,10 @@ function Get-ListeningFinding {
     <# .SYNOPSIS A check result: does RustDesk listen on its direct IP access port, waiting as Test-RustDeskListening does? #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
-    param([int]$Port = $script:Setting.DirectPort, [int]$TimeoutSeconds = $script:Setting.ListenWaitSeconds)
+    param(
+        [int]$Port = $script:Setting.DirectPort,
+        [ValidateRange(0, 300)][int]$TimeoutSeconds = $script:Setting.ListenWaitSeconds
+    )
     $detail = "nothing listening after $TimeoutSeconds seconds"
     try { $pass = Test-RustDeskListening -Port $Port -TimeoutSeconds $TimeoutSeconds }
     catch {
@@ -780,8 +783,8 @@ function Get-ListeningFinding {
 function Assert-OnlyNotFound {
     <#
     .SYNOPSIS
-    Throws the first error that isn't "not found". Looking up a firewall rule by a name that doesn't exist is normal
-    (RustDesk versions name their rules differently); access denied or a firewall service error is not.
+    Throws the first error that isn't "not found". A lookup that finds nothing is normal (a firewall rule name another
+    RustDesk version uses, a port nothing listens on yet); access denied or a service error is not.
     #>
     [CmdletBinding()]
     param([AllowNull()][AllowEmptyCollection()][object[]]$ErrorRecord = @())
