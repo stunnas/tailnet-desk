@@ -22,6 +22,7 @@
 TD_DIRECT_PORT=21118                        # RustDesk direct IP access (TCP)
 TD_LISTEN_WAIT=30                           # seconds the check waits for RustDesk to open TD_DIRECT_PORT
 TD_SIGNIN_WAIT=600                          # seconds install-host.sh waits for the Tailscale sign-in (its header and docs/host-mac.md say 10 minutes)
+TD_SERVICE_WAIT=600                         # seconds install-host.sh waits for RustDesk's system service (its header and docs/host-mac.md say 10 minutes)
 TD_RUSTDESK_REPO='rustdesk/rustdesk'        # the official GitHub repo; downloads come only from its releases
 # Released 2026-11-09. Bump together with both SHA-256 values, then re-test and update the README's Status.
 TD_RUSTDESK_VERSION='1.5.3'
@@ -495,6 +496,33 @@ td_rustdesk_starts_at_boot() {
 # True when RustDesk's background server (the part that accepts connections) is running.
 td_rustdesk_server_running() {
   /usr/bin/pgrep -f "$TD_RUSTDESK_APP/Contents/MacOS/RustDesk --server" > /dev/null
+}
+
+# Waits about $1 seconds (default TD_SERVICE_WAIT, looking every 3 seconds) for RustDesk's system service to be
+# installed and running, after saying once how to install it. If it had to wait, it then asks you to allow RustDesk's
+# two macOS permissions and press Return, because a script can't see those. Fails when the time runs out.
+td_wait_rustdesk_service() {
+  local timeout=${1:-$TD_SERVICE_WAIT} waited=0 minutes unit answer
+  while ! { td_rustdesk_starts_at_boot && td_rustdesk_server_running; }; do
+    [ "$waited" -lt "$timeout" ] || return 1
+    if [ "$waited" -eq 0 ]; then
+      minutes=$(( (timeout + 59) / 60 ))
+      unit=minutes; [ "$minutes" -ne 1 ] || unit=minute
+      echo "RustDesk's system service isn't installed or running yet. At this Mac:"
+      echo '  1. Open RustDesk from Applications. If macOS asks whether to open it, choose Open.'
+      echo '  2. Under "For starting on boot, you need to install system service", click Install and enter your Mac'
+      echo '     password. ("Start service" alone only runs it until the next restart.)'
+      echo "Waiting up to $minutes $unit for the service. The script goes on by itself once it's running."
+    fi
+    /bin/sleep 3
+    waited=$((waited + 3))
+  done
+  [ "$waited" -gt 0 ] || return 0
+  echo "RustDesk's service is running. Now allow RustDesk in System Settings > Privacy & Security, under both"
+  echo 'Screen & System Audio Recording and Accessibility. Quit and reopen RustDesk after each.'
+  printf 'Press Return once RustDesk is allowed under both: '
+  IFS= read -r answer || true
+  echo
 }
 
 # Reads RustDesk settings ($@ are keys) through its command line, as "key=value" lines. RustDesk only answers an
