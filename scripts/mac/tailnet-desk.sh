@@ -20,6 +20,7 @@
 # (tests/mac checks it).
 
 TD_DIRECT_PORT=21118                        # RustDesk direct IP access (TCP)
+TD_LISTEN_WAIT=30                           # seconds the check waits for RustDesk to open TD_DIRECT_PORT
 TD_RUSTDESK_REPO='rustdesk/rustdesk'        # the official GitHub repo; downloads come only from its releases
 # Released 2026-11-09. Bump together with both SHA-256 values, then re-test and update the README's Status.
 TD_RUSTDESK_VERSION='1.5.3'
@@ -436,9 +437,18 @@ td_rustdesk_read() {
   done
 }
 
-# True when something listens on TCP port $1.
+# True when something listens on TCP port $1, waiting up to $2 seconds (default TD_LISTEN_WAIT, looking every 2
+# seconds, so an odd number rounds up): RustDesk opens the port a few seconds after direct IP access is turned on, so
+# a check straight after setting it would fail. Says it's waiting on stderr, because the checks' stdout is their
+# findings.
 td_port_listening() {
-  /usr/sbin/lsof -nP -iTCP:"$1" -sTCP:LISTEN > /dev/null 2>&1
+  local port=$1 timeout=${2:-$TD_LISTEN_WAIT} waited=0
+  while ! /usr/sbin/lsof -nP -iTCP:"$port" -sTCP:LISTEN > /dev/null 2>&1; do
+    [ "$waited" -lt "$timeout" ] || return 1
+    [ "$waited" -gt 0 ] || echo "  Waiting up to $timeout seconds for RustDesk to listen on TCP $port ..." >&2
+    /bin/sleep 2
+    waited=$((waited + 2))
+  done
 }
 
 # True when the opt-in pf step's files are installed.
