@@ -375,7 +375,7 @@ tests that prove the setup works must run from the controller.
 | Whitelist doesn't include this Mac's own address | Remove the host's own `100.x` address from the whitelist: only controllers belong there. |
 | Whitelist is not empty while direct IP access is on | Add the controller's address to the whitelist, or turn off direct IP access. |
 | RustDesk setting ... | That setting differs from [step 3's table](#3-rustdesk-security-settings). Fix it in RustDesk, or run `./install-host.sh` again. |
-| RustDesk listens on TCP 21118 | Direct IP access is on but nothing listens: quit and reopen RustDesk. |
+| RustDesk listens on TCP 21118 | Direct IP access is on, but RustDesk didn't open the port within 30 seconds. Quit and reopen RustDesk, then run `./test-host.sh` again. |
 | The firewall step's rules are loaded and pf is on | Run `./enable-pf.sh` again. If you don't want the step any more, run `./undo-pf.sh`. |
 
 ### Other problems
