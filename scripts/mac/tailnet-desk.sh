@@ -375,18 +375,22 @@ td_tailscale_ipv4() {
   if td_is_tailscale_ipv4 "$out"; then echo "$out"; fi
 }
 
+# "1 minute" or "N minutes" for a wait of $1 seconds, rounded up to whole minutes.
+td_minutes_phrase() {
+  local minutes=$(( ($1 + 59) / 60 ))
+  if [ "$minutes" -eq 1 ]; then echo '1 minute'; else echo "$minutes minutes"; fi
+}
+
 # This Mac's Tailscale address, waiting about $1 seconds (default TD_SIGNIN_WAIT, looking every 3 seconds) for you to
 # allow Tailscale and sign in; nothing when the time runs out. Says once, on stderr, how to sign in, because stdout is
 # the address.
 td_wait_tailscale_ipv4() {
-  local timeout=${1:-$TD_SIGNIN_WAIT} waited=0 ip minutes unit
+  local timeout=${1:-$TD_SIGNIN_WAIT} waited=0 ip
   while :; do
     ip=$(td_tailscale_ipv4)
     if [ -n "$ip" ]; then echo "$ip"; return 0; fi
     [ "$waited" -lt "$timeout" ] || return 0
     if [ "$waited" -eq 0 ]; then
-      minutes=$(( (timeout + 59) / 60 ))
-      unit=minutes; [ "$minutes" -ne 1 ] || unit=minute
       {
         echo "Tailscale is installed but not signed in (or not running) yet. At this Mac:"
         echo '  1. If Tailscale is not open, open it from Applications. When macOS asks to allow its network extension or'
@@ -394,7 +398,7 @@ td_wait_tailscale_ipv4() {
         echo '     Extensions > Network Extensions).'
         echo '  2. Click the Tailscale icon in the menu bar, choose Log in, and sign in with the same account as your'
         echo '     other devices.'
-        echo "Waiting up to $minutes $unit for the sign-in. The script goes on by itself once you're signed in."
+        echo "Waiting up to $(td_minutes_phrase "$timeout") for the sign-in. The script goes on by itself once you're signed in."
       } >&2
     fi
     /bin/sleep 3
@@ -500,29 +504,30 @@ td_rustdesk_server_running() {
 
 # Waits about $1 seconds (default TD_SERVICE_WAIT, looking every 3 seconds) for RustDesk's system service to be
 # installed and running, after saying once how to install it. If it had to wait, it then asks you to allow RustDesk's
-# two macOS permissions and press Return, because a script can't see those. Fails when the time runs out.
+# two macOS permissions and in the background, and to press Return, because a script can't see those. Fails when the
+# time runs out.
 td_wait_rustdesk_service() {
-  local timeout=${1:-$TD_SERVICE_WAIT} waited=0 minutes unit answer
+  local timeout=${1:-$TD_SERVICE_WAIT} waited=0 answer
   while ! { td_rustdesk_starts_at_boot && td_rustdesk_server_running; }; do
     [ "$waited" -lt "$timeout" ] || return 1
     if [ "$waited" -eq 0 ]; then
-      minutes=$(( (timeout + 59) / 60 ))
-      unit=minutes; [ "$minutes" -ne 1 ] || unit=minute
       echo "RustDesk's system service isn't installed or running yet. At this Mac:"
       echo '  1. Open RustDesk from Applications. If macOS asks whether to open it, choose Open.'
       echo '  2. Under "For starting on boot, you need to install system service", click Install and enter your Mac'
       echo '     password. ("Start service" alone only runs it until the next restart.)'
-      echo "Waiting up to $minutes $unit for the service. The script goes on by itself once it's running."
+      echo "Waiting up to $(td_minutes_phrase "$timeout") for the service. The script goes on by itself once it's running."
     fi
     /bin/sleep 3
     waited=$((waited + 3))
   done
   [ "$waited" -gt 0 ] || return 0
-  echo "RustDesk's service is running. Now allow RustDesk in System Settings > Privacy & Security, under both"
-  echo 'Screen & System Audio Recording and Accessibility. Quit and reopen RustDesk after each.'
-  printf 'Press Return once RustDesk is allowed under both: '
-  IFS= read -r answer || true
-  echo
+  echo "RustDesk's service is running. Now, in System Settings:"
+  echo '  1. Privacy & Security: allow RustDesk under both Screen & System Audio Recording and Accessibility. Quit and'
+  echo '     reopen RustDesk after each.'
+  echo '  2. General > Login Items & Extensions: check RustDesk is allowed in the background.'
+  printf 'Press Return once both are done: '
+  # A newline only when the input ended without one; on a terminal, Return already ends the line.
+  IFS= read -r answer || echo
 }
 
 # Reads RustDesk settings ($@ are keys) through its command line, as "key=value" lines. RustDesk only answers an

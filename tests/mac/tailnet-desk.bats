@@ -852,7 +852,8 @@ wait_signin() {
 
 # Runs td_wait_rustdesk_service with RustDesk's service checks replaced: the startup items are there unless
 # $NO_STARTUP_ITEMS is set, and the server runs from its $RUNNING_AFTER-th look on (never when unset). sleep only logs,
-# so no real time passes, and $ANSWERS is the input. stdout is $output.
+# so no real time passes, and $ANSWERS is the input. stdout is $output, with a last line "left: " and what the function
+# didn't read.
 wait_service() {
   B="$BATS_TEST_TMPDIR/bin"; mkdir -p "$B"
   printf '#!/bin/bash\nprintf "sleep %%s\\n" "$*" >> "$STUB_LOG"\n' > "$B/sleep"
@@ -868,30 +869,38 @@ wait_service() {
       echo look >> "$STUB_LOG"
       [ -n "${RUNNING_AFTER-}" ] && [ "$(grep -c "^look" "$STUB_LOG")" -ge "$RUNNING_AFTER" ]
     }
-    printf "%s" "${ANSWERS-}" | td_wait_rustdesk_service "$@"' x "$@"
+    printf "%s" "${ANSWERS-}" | { rc=0; td_wait_rustdesk_service "$@" || rc=$?; echo "left: $(cat)"; exit "$rc"; }' x "$@"
 }
 
 @test "td_wait_rustdesk_service goes on at once, and says and asks nothing, when the service runs" {
-  RUNNING_AFTER=1 wait_service
+  RUNNING_AFTER=1 ANSWERS=$'next\n' wait_service
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  [ "$output" = 'left: next' ]
   ! grep -q '^sleep' "$STUB_LOG" || false
 }
 
 @test "td_wait_rustdesk_service says once how to install the service, waits for it, then asks about the permissions" {
-  RUNNING_AFTER=4 ANSWERS=$'\n' wait_service
+  RUNNING_AFTER=4 ANSWERS=$'\nnext\n' wait_service
   [ "$status" -eq 0 ]
   [ "$(grep -c '^sleep 3$' "$STUB_LOG")" -eq 3 ]
   [ "$(grep -c 'click Install' <<< "$output")" -eq 1 ]
   [ "$(grep -c "^Waiting up to 10 minutes for the service. The script goes on by itself once it's running.$" <<< "$output")" -eq 1 ]
-  grep -q 'Screen & System Audio Recording and Accessibility' <<< "$output"
-  grep -q '^Press Return once RustDesk is allowed under both: $' <<< "$output"
+  # In order: how to install the service, then the permissions and background item, then the question, which reads
+  # one line and no more.
+  [ "${lines[0]}" = "RustDesk's system service isn't installed or running yet. At this Mac:" ]
+  [ "${lines[4]}" = "Waiting up to 10 minutes for the service. The script goes on by itself once it's running." ]
+  [ "${lines[5]}" = "RustDesk's service is running. Now, in System Settings:" ]
+  grep -q 'Screen & System Audio Recording and Accessibility' <<< "${lines[6]}"
+  grep -q 'allowed in the background' <<< "${lines[8]}"
+  [ "${lines[9]}" = 'Press Return once both are done: left: next' ]
 }
 
 @test "td_wait_rustdesk_service treats an ended input like Return at the permissions question" {
   RUNNING_AFTER=2 wait_service
   [ "$status" -eq 0 ]
-  grep -q '^Press Return once RustDesk is allowed under both: $' <<< "$output"
+  # The newline after the question comes from the function, since the input had none.
+  [ "${lines[$(( ${#lines[@]} - 2 ))]}" = 'Press Return once both are done: ' ]
+  [ "${lines[$(( ${#lines[@]} - 1 ))]}" = 'left: ' ]
 }
 
 @test "td_wait_rustdesk_service waits for the startup items too, not only the running server" {
@@ -916,7 +925,7 @@ wait_service() {
   [ "$(grep -c '^sleep 3$' "$STUB_LOG")" -eq 200 ]
   wait_service 0
   [ "$status" -eq 1 ]
-  [ -z "$output" ]
+  [ "$output" = 'left: ' ]
   [ "$(grep -c '^look' "$STUB_LOG")" -eq 1 ]
 }
 

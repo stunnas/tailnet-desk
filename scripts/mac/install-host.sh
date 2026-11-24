@@ -11,8 +11,8 @@
 #      allow its network extension and sign in (you click those).
 #   2. Installs RustDesk (pinned version) from its official GitHub release after checking the disk image's SHA-256
 #      and its Apple signing team, if it isn't installed yet.
-#   3. Waits up to 10 minutes while you install RustDesk's background service, then asks you to allow its two macOS
-#      permissions and press Return (you click those).
+#   3. If RustDesk's background service isn't running yet, waits up to 10 minutes while you install it, then asks you
+#      to allow its two macOS permissions and its background item and press Return (you click those).
 #   4. Sets RustDesk's security settings: no public ID or relay server, permanent password only, sessions start on the
 #      password without anyone clicking Accept, no LAN discovery, and direct IP access with only your controllers
 #      whitelisted (off until there is a controller). Asks for the controllers' addresses unless --controller-ip gave
@@ -64,8 +64,9 @@ td_install_rustdesk
 
 step "Step 3 of 6: RustDesk's background service and permissions"
 if ! td_wait_rustdesk_service; then
-  echo "RustDesk's service still isn't installed and running. Install it as above, then run this script again. If you"
-  echo 'clicked Install and it still is not running, restart the Mac first.'
+  echo "RustDesk's service still isn't installed and running. Install it as above, and allow RustDesk under Screen &"
+  echo 'System Audio Recording and Accessibility in Privacy & Security, then run this script again. If you clicked'
+  echo 'Install and it still is not running, restart the Mac first.'
   exit 2
 fi
 echo 'RustDesk is running. Your Mac password may be asked: RustDesk only shows its settings to an administrator.'
