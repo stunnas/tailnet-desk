@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Compares the RustDesk and Tailscale versions the install scripts pin with the latest releases, and prints a Markdown
-# report. It never changes a file: bumping a pin means new SHA-256 values and a re-test, which stay by hand. The
-# version-watch workflow looks the releases up and passes them in, so this script itself never uses the network.
+# Compares the RustDesk and Tailscale versions the install scripts pin with their releases, and prints a Markdown
+# report. A bump is due when a release newer than the pin is at least MIN_AGE_DAYS old; the report names the newest
+# such release, which is the one to bump to. It never changes a file: a bump needs new SHA-256 values and a re-test,
+# which stay by hand. The version-watch workflow looks the releases up and passes them in, so this script itself
+# never uses the network.
 #
-# Usage: tools/check-versions.sh <rustdesk-tag> <rustdesk-published> <tailscale-tag> <tailscale-published>
-#   A tag is a release's tag (1.5.3 or v1.104.7); published is its GitHub publish time (2026-11-09T09:43:52Z).
-#   TODAY (YYYY-MM-DD, default today in UTC) sets the date that the releases' ages are counted to.
-# Exit: 0 when no pin is due a bump, 1 when a newer release is at least MIN_AGE_DAYS old (the report says which),
-# 2 on bad input or when the Mac and Windows pins disagree.
+# Usage: tools/check-versions.sh <rustdesk-releases> <tailscale-releases>
+#   Each is a file with one release per line: its tag (1.5.3 or v1.104.7), a space, and its GitHub publish time
+#   (2026-11-09T09:43:52Z). A tag not shaped like a version (such as 1.2.3-2) is left out, and the report says how
+#   many were. TODAY (YYYY-MM-DD, default today in UTC) sets the date the releases' ages are counted to.
+# Exit: 0 when no pin is due a bump, 1 when one is (the report says which and to what), 2 on bad input or when the
+# Mac and Windows pins disagree.
 set -euo pipefail
 
 MIN_AGE_DAYS=14 # the repo bumps pins only to releases at least two weeks old
@@ -18,25 +21,29 @@ win="$root/scripts/windows/tailnet-desk.psm1"
 
 die() { echo "check-versions: $*" >&2; exit 2; }
 
-[ "$#" -eq 4 ] || die 'needs 4 arguments: rustdesk-tag rustdesk-published tailscale-tag tailscale-published (see the header)'
+# A refused value, cut to plain characters so text from outside can't pass for log commands.
+shown() { printf '%s' "$1" | tr -cd 'A-Za-z0-9._-' | cut -c 1-40; }
+
+[ "$#" -eq 2 ] || die 'needs 2 arguments: the RustDesk and Tailscale release files (see the header)'
 
 # A version from a tag: 1.2.3, with an optional leading v; anything else is refused, since it comes from outside.
 version_of() {
   local v=${1#v}
-  [[ $v =~ ^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$ ]] || die "not a release version: '$1'"
+  [[ $v =~ ^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$ ]] || die "not a release version: '$(shown "$1")'"
   echo "$v"
 }
 
-# The date part of a GitHub publish time; anything else is refused.
-date_of() {
-  [[ $1 =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || die "not a publish time: '$1'"
-  echo "${BASH_REMATCH[1]}"
-}
-
-# Days since 1970-01-01 for a YYYY-MM-DD date, in plain arithmetic so it works the same with GNU and BSD date.
+# Days since 1970-01-01 for a real YYYY-MM-DD date, in plain arithmetic so it works the same with GNU and BSD date.
 days_of() {
-  local y=$((10#${1:0:4})) m=$((10#${1:5:2})) d=$((10#${1:8:2})) era yoe doy doe
-  [ "$m" -ge 1 ] && [ "$m" -le 12 ] && [ "$d" -ge 1 ] && [ "$d" -le 31 ] || die "not a date: '$1'"
+  [[ $1 =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || die "not a date: '$(shown "$1")'"
+  local y=$((10#${1:0:4})) m=$((10#${1:5:2})) d=$((10#${1:8:2})) last era yoe doy doe
+  case $m in
+    1|3|5|7|8|10|12) last=31 ;;
+    4|6|9|11) last=30 ;;
+    2) if [ $((y % 4)) -eq 0 ] && { [ $((y % 100)) -ne 0 ] || [ $((y % 400)) -eq 0 ]; }; then last=29; else last=28; fi ;;
+    *) die "not a date: '$1'" ;;
+  esac
+  [ "$d" -ge 1 ] && [ "$d" -le "$last" ] || die "not a date: '$1'"
   [ "$m" -le 2 ] && y=$((y - 1))
   era=$((y / 400)); yoe=$((y - era * 400))
   doy=$(( (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1 ))
@@ -65,7 +72,7 @@ pin() {
 }
 
 today=${TODAY:-$(date -u +%Y-%m-%d)}
-[[ $today =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || die "TODAY isn't YYYY-MM-DD: '$today'"
+[[ $today =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || die "TODAY isn't YYYY-MM-DD: '$(shown "$today")'"
 today_days=$(days_of "$today")
 
 rustdesk_mac=$(pin "$mac" TD_RUSTDESK_VERSION); rustdesk_win=$(pin "$win" RustDeskVersion)
@@ -75,24 +82,42 @@ tailscale_mac=$(pin "$mac" TD_TAILSCALE_VERSION); tailscale_win=$(pin "$win" Tai
 
 due=0
 rows=()
-# Adds one report row for app $1 pinned at $2, whose latest release is tag $3 published at $4.
+# Adds one report row for app $1 pinned at $2, whose releases are listed in file $3.
 check() {
-  local app=$1 pinned=$2 latest published published_days age state
-  latest=$(version_of "$3"); published=$(date_of "$4"); published_days=$(days_of "$published")
-  age=$((today_days - published_days))
-  if ! newer "$latest" "$pinned"; then
-    state='Up to date'
-  elif [ "$age" -ge "$MIN_AGE_DAYS" ]; then
-    state="**Bump due**: released $age days ago"; due=1
+  local app=$1 pinned=$2 file=$3 tag time rest version date date_days age count=0 skipped=0
+  local latest='' latest_date='' latest_age=0 target='' target_age=0 state
+  [ -f "$file" ] || die "$app: no such file: $file"
+  while IFS=' ' read -r tag time rest || [ -n "$tag" ]; do
+    [ -z "$rest" ] || die "$app: a release line has more than a tag and a time"
+    if ! [[ ${tag#v} =~ ^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}$ ]]; then skipped=$((skipped + 1)); continue; fi
+    version=${tag#v}
+    [[ ${time-} =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] ||
+      die "$app $version: not a publish time: '$(shown "${time-}")'"
+    date=${BASH_REMATCH[1]}
+    date_days=$(days_of "$date")
+    age=$((today_days - date_days))
+    [ "$age" -ge 0 ] || die "$app $version: published after TODAY ($today)"
+    count=$((count + 1))
+    if [ -z "$latest" ] || newer "$version" "$latest"; then latest=$version; latest_date=$date; latest_age=$age; fi
+    if newer "$version" "$pinned" && [ "$age" -ge "$MIN_AGE_DAYS" ] && { [ -z "$target" ] || newer "$version" "$target"; }; then
+      target=$version; target_age=$age
+    fi
+  done < "$file"
+  [ "$count" -gt 0 ] || die "$app: no release with a version tag listed"
+  if [ -n "$target" ]; then
+    state="**Bump due**: to $target, released $target_age days ago"; due=1
+  elif newer "$latest" "$pinned"; then
+    state="Newer, but none newer than the pin is $MIN_AGE_DAYS days old yet (the latest is $latest_age days old)"
   else
-    state="Newer, released $age days ago: due once it's $MIN_AGE_DAYS days old"
+    state='Up to date'
   fi
-  rows+=("| $app | $pinned | $latest ($published) | $state |")
+  [ "$skipped" -eq 0 ] || state="$state. Left out $skipped tag(s) not shaped like a version"
+  rows+=("| $app | $pinned | $latest ($latest_date) | $state |")
 }
-check RustDesk "$rustdesk_mac" "$1" "$2"
-check Tailscale "$tailscale_mac" "$3" "$4"
+check RustDesk "$rustdesk_mac" "$1"
+check Tailscale "$tailscale_mac" "$2"
 
-echo "Pinned versions compared with the latest releases on $today."
+echo "Pinned versions compared with the releases on $today."
 echo
 echo '| App | Pinned | Latest release | State |'
 echo '|---|---|---|---|'
@@ -100,9 +125,10 @@ printf '%s\n' "${rows[@]}"
 if [ "$due" -eq 1 ]; then
   cat << 'EOF'
 
-To bump a pin, change its version and the SHA-256 values next to it in both `scripts/mac/tailnet-desk.sh` and
-`scripts/windows/tailnet-desk.psm1`, taking the hashes from the official downloads. Then run the tests, try the
-install on a real machine, and update the README's Status.
+To bump a pin, change in both `scripts/mac/tailnet-desk.sh` and `scripts/windows/tailnet-desk.psm1` its version,
+the release date in the comment above it, and the SHA-256 values next to it (for RustDesk on a Mac, both disk images:
+ARM64 and x86_64), taking the hashes from the official downloads. Then run the tests, try the install on a real
+machine, and update the README's Status.
 EOF
 fi
 exit "$due"
