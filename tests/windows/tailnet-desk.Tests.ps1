@@ -463,6 +463,58 @@ Describe 'Test-RustDeskListening' {
         Test-RustDeskListening -Port 21118 -TimeoutSeconds 10 | Should -BeFalse
         Should -Invoke -ModuleName tailnet-desk Start-Sleep -Times 5 -Exactly
     }
+    It 'waits the setting''s 30 seconds by default' {
+        (Get-TailnetDeskSetting).ListenWaitSeconds | Should -Be 30
+        Mock -ModuleName tailnet-desk Get-NetTCPConnection { }
+        Test-RustDeskListening -Port 21118 | Should -BeFalse
+        Should -Invoke -ModuleName tailnet-desk Start-Sleep -Times 15 -Exactly
+    }
+    It 'looks once and says nothing with no time to wait' {
+        Mock -ModuleName tailnet-desk Get-NetTCPConnection { }
+        Test-RustDeskListening -Port 21118 -TimeoutSeconds 0 | Should -BeFalse
+        Should -Invoke -ModuleName tailnet-desk Get-NetTCPConnection -Times 1 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Start-Sleep -Times 0 -Exactly
+        Should -Invoke -ModuleName tailnet-desk Write-Host -Times 0 -Exactly
+    }
+    It 'takes "not found" for a closed port, but throws any other error at once' {
+        Mock -ModuleName tailnet-desk Get-NetTCPConnection {
+            Write-Error -Message 'No matching objects found' -Category ObjectNotFound
+        }
+        Test-RustDeskListening -Port 21118 -TimeoutSeconds 2 | Should -BeFalse
+        Mock -ModuleName tailnet-desk Get-NetTCPConnection { Write-Error -Message 'Access denied' -Category PermissionDenied }
+        { Test-RustDeskListening -Port 21118 } | Should -Throw '*Access denied*'
+        Should -Invoke -ModuleName tailnet-desk Start-Sleep -Times 1 -Exactly
+    }
+    # The check relies on Windows reporting "nothing listening" as ObjectNotFound; this asks the real command.
+    It 'gets "not found" from the real Get-NetTCPConnection for a closed port' -Skip:([Environment]::OSVersion.Platform -ne 'Win32NT') {
+        $closed = 1..200 | ForEach-Object { 40000 + $_ } |
+            Where-Object { -not (Get-NetTCPConnection -LocalPort $_ -ErrorAction SilentlyContinue) } | Select-Object -First 1
+        $null = Get-NetTCPConnection -LocalPort $closed -State Listen -ErrorAction SilentlyContinue -ErrorVariable lookupError
+        @($lookupError).Count | Should -BeGreaterThan 0
+        { Assert-OnlyNotFound -ErrorRecord $lookupError } | Should -Not -Throw
+    }
+}
+
+Describe 'Get-ListeningFinding' {
+    It 'passes when RustDesk listens, and the check names the port' {
+        Mock -ModuleName tailnet-desk Test-RustDeskListening { $true }
+        $f = Get-ListeningFinding
+        $f.Check | Should -Be 'RustDesk listens on TCP 21118'
+        $f.Pass | Should -BeTrue
+        Should -Invoke -ModuleName tailnet-desk Test-RustDeskListening -Times 1 -Exactly -ParameterFilter { $Port -eq 21118 -and $TimeoutSeconds -eq 30 }
+    }
+    It 'fails with how long it waited' {
+        Mock -ModuleName tailnet-desk Test-RustDeskListening { $false }
+        $f = Get-ListeningFinding -TimeoutSeconds 12
+        $f.Pass | Should -BeFalse
+        $f.Detail | Should -Be 'nothing listening after 12 seconds'
+    }
+    It 'fails with the error when the ports cannot be read' {
+        Mock -ModuleName tailnet-desk Test-RustDeskListening { throw 'Access denied' }
+        $f = Get-ListeningFinding
+        $f.Pass | Should -BeFalse
+        $f.Detail | Should -BeLike "couldn't read the listening ports (*Access denied*)"
+    }
 }
 
 Describe 'New-PrivateFolder' {

@@ -22,6 +22,7 @@ Set-StrictMode -Version 3.0
 
 $script:Setting = [pscustomobject]@{
     DirectPort      = 21118                 # RustDesk direct IP access (TCP)
+    ListenWaitSeconds = 30                  # how long the check waits for RustDesk to open DirectPort
     AdapterName     = 'Tailscale'           # Tailscale's network adapter on Windows
     ServiceName     = 'RustDesk'
     RuleNames       = @('RustDesk Service', 'rustdesk.exe')   # names RustDesk's installer gives its firewall rules
@@ -741,18 +742,39 @@ function Test-RustDeskListening {
     #>
     [CmdletBinding()]
     [OutputType([bool])]
-    param([int]$Port = $script:Setting.DirectPort, [int]$TimeoutSeconds = 30)
+    param(
+        [int]$Port = $script:Setting.DirectPort,
+        [ValidateRange(0, 300)][int]$TimeoutSeconds = $script:Setting.ListenWaitSeconds
+    )
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $said = $false
     while ($true) {
-        if (@(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue).Count -gt 0) { return $true }
+        # Nothing listening is reported as "not found"; any other error (access denied, a CIM failure) is thrown, so
+        # it isn't taken for a closed port.
+        $found = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue -ErrorVariable lookupError)
+        Assert-OnlyNotFound -ErrorRecord $lookupError
+        if ($found.Count -gt 0) { return $true }
         if ((Get-Date) -ge $deadline) { return $false }
         if (-not $said) {
-            Write-Host "Waiting up to $TimeoutSeconds seconds for RustDesk to listen on TCP $Port ..."
+            Write-Host "  Waiting up to $TimeoutSeconds seconds for RustDesk to listen on TCP $Port ..."
             $said = $true
         }
         Start-Sleep -Seconds 2
     }
+}
+
+function Get-ListeningFinding {
+    <# .SYNOPSIS A check result: does RustDesk listen on its direct IP access port, waiting as Test-RustDeskListening does? #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([int]$Port = $script:Setting.DirectPort, [int]$TimeoutSeconds = $script:Setting.ListenWaitSeconds)
+    $detail = "nothing listening after $TimeoutSeconds seconds"
+    try { $pass = Test-RustDeskListening -Port $Port -TimeoutSeconds $TimeoutSeconds }
+    catch {
+        $pass = $false
+        $detail = "couldn't read the listening ports ($($_.Exception.Message))"
+    }
+    return [pscustomobject]@{ Check = "RustDesk listens on TCP $Port"; Pass = $pass; Detail = $detail }
 }
 
 function Assert-OnlyNotFound {

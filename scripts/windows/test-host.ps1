@@ -54,8 +54,7 @@ if ($exe -and $rustDeskSigned) {
     $findings += Get-HostSettingFinding -ControllerIp $ControllerIp -Current $current -OwnIp "$tsIp"
 
     if (Test-OptionValue -Key 'direct-server' -Want 'Y' -Have $current['direct-server']) {
-        $listening = Test-RustDeskListening -Port $setting.DirectPort
-        $findings += [pscustomobject]@{ Check = "RustDesk listens on TCP $($setting.DirectPort)"; Pass = $listening; Detail = 'nothing listening after 30 seconds' }
+        $findings += Get-ListeningFinding
     }
 }
 

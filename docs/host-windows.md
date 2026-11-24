@@ -292,6 +292,8 @@ All host checks passed. Now test from the controller: test-from-controller.ps1 o
 
 After that it lists the password and two-factor steps for you to do in RustDesk, and this PC's Tailscale address
 again. Every line should say PASS. If one says FAIL, see [FAIL lines from test-host.ps1](#fail-lines-from-test-hostps1).
+Right after direct IP access is turned on, a line `Waiting up to 30 seconds for RustDesk to listen on TCP 21118 ...`
+can appear before "Host checks": RustDesk takes a few seconds to open its port, and the check waits for it.
 
 Later runs without `-ControllerIp` keep the controller addresses already on the whitelist. They don't keep anything
 that isn't a single `100.x` Tailscale address, such as a range or this PC's own address: the script names those entries.
