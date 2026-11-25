@@ -16,7 +16,8 @@
 # sudo once the copy in Applications passes its signature check.
 
 # --- Settings ------------------------------------------------------------------------------------------------
-# Versions are pinned and bumped by hand after testing. The RustDesk version must match scripts/windows/tailnet-desk.psm1
+# Versions are pinned. The version watch (.github/workflows/version-watch.yml) opens a PR when a bump is due, merged
+# after testing. The RustDesk version must match scripts/windows/tailnet-desk.psm1
 # (tests/mac checks it).
 
 TD_DIRECT_PORT=21118                        # RustDesk direct IP access (TCP)

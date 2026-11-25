@@ -59,7 +59,7 @@ releases() {
   [ "$status" -eq 1 ]
   grep -qF '| Tailscale | 1.104.4 | 1.104.7 (2026-11-10) | **Bump due**: to 1.104.7, released 14 days ago |' <<< "$output"
   grep -qF '| RustDesk | 1.5.3 | 1.5.3 (2026-11-09) | Up to date |' <<< "$output"
-  grep -q '^To bump a pin, change in both' <<< "$output"
+  grep -q '^To bump a pin (the Version watch workflow opens a PR that does it), change in both' <<< "$output"
   grep -qF 'the release date in the comment above it' <<< "$output"
   grep -qF 'both disk images' <<< "$output"
 }
@@ -212,4 +212,27 @@ releases() {
   run "$REAL" "$RD" "$TS"
   [ "$status" -eq 0 ]
   [ "$(grep -c 'Up to date |$' <<< "$output")" -eq 2 ]
+}
+
+@test "lists each due bump in TARGETS_FILE, with every release newer than the pin up to it by version, highest first" {
+  releases "$TS" 'v1.104.7 2026-11-21T00:00:00Z' 'v1.104.5 2026-11-03T00:00:00Z' 'v1.104.10 2026-11-05T00:00:00Z' \
+    'v1.104.6 2026-11-04T00:00:00Z' 'v1.104.4 2026-10-28T10:00:00Z' 'v1.102.1 2026-09-01T00:00:00Z'
+  TARGETS_FILE="$TMP/targets.txt" run "$CHECK" "$RD" "$TS"
+  [ "$status" -eq 1 ]
+  [ "$(cat "$TMP/targets.txt")" = 'Tailscale 1.104.10 2026-11-05 1.104.10:2026-11-05,1.104.7:2026-11-21,1.104.6:2026-11-04,1.104.5:2026-11-03' ]
+}
+
+@test "empties TARGETS_FILE when nothing is due" {
+  printf 'stale\n' > "$TMP/targets.txt"
+  TARGETS_FILE="$TMP/targets.txt" run "$CHECK" "$RD" "$TS"
+  [ "$status" -eq 0 ]
+  [ ! -s "$TMP/targets.txt" ]
+}
+
+@test "lists both apps in TARGETS_FILE when both are due" {
+  releases "$RD" '1.5.4 2026-11-01T00:00:00Z' '1.5.3 2026-11-09T09:43:52Z'
+  releases "$TS" 'v1.104.5 2026-11-03T00:00:00Z' 'v1.104.4 2026-10-28T10:00:00Z'
+  TARGETS_FILE="$TMP/targets.txt" run "$CHECK" "$RD" "$TS"
+  [ "$status" -eq 1 ]
+  [ "$(cat "$TMP/targets.txt")" = $'RustDesk 1.5.4 2026-11-01 1.5.4:2026-11-01\nTailscale 1.104.5 2026-11-03 1.104.5:2026-11-03' ]
 }

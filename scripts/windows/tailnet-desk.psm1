@@ -18,7 +18,8 @@
 Set-StrictMode -Version 3.0
 
 # --- Settings ------------------------------------------------------------------------------------------------
-# Versions are pinned and bumped by hand after testing; the SHA-256 is checked before anything runs.
+# Versions are pinned; the version watch (.github/workflows/version-watch.yml) opens a PR when a bump is due, merged
+# after testing. The SHA-256 is checked before anything runs.
 
 $script:Setting = [pscustomobject]@{
     DirectPort      = 21118                 # RustDesk direct IP access (TCP)

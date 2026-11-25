@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 # Compares the RustDesk and Tailscale versions the install scripts pin with their releases, and prints a Markdown
 # report. A bump is due when a release newer than the pin is at least MIN_AGE_DAYS old; the report names the newest
-# such release, which is the one to bump to. It never changes a file: a bump needs new SHA-256 values and a re-test,
-# which stay by hand. The version-watch workflow looks the releases up and passes them in, so this script itself
-# never uses the network.
+# such release, which is the one to bump to. It never changes a file: the version-watch workflow opens the bump PR,
+# with hashes from tools/prepare-bump.sh, and trying the new version on a real machine stays by hand. The workflow looks
+# the releases up and passes them in, so this script itself never uses the network.
 #
 # Usage: tools/check-versions.sh <rustdesk-releases> <tailscale-releases>
 #   Each is a file with one release per line: its tag (1.5.3 or v1.104.7), a space, and its GitHub publish time
 #   (2026-11-09T09:43:52Z). A tag not shaped like a version (such as 1.2.3-2) is left out, and the report says how
 #   many were. TODAY (YYYY-MM-DD, default today in UTC) sets the date the releases' ages are counted to.
+#   TARGETS_FILE, when set, also gets one line per due bump for the version-watch workflow: the app, the version to
+#   bump to, its release date, and every release newer than the pin up to it as version:date, comma-separated, highest
+#   version first (RustDesk 1.5.5 2026-11-20 1.5.5:2026-11-20,1.5.4:2026-11-12). Each value has passed the checks below.
 # Exit: 0 when no pin is due a bump, 1 when one is (the report says which and to what), 2 on bad input or when the
 # Mac and Windows pins disagree.
 set -euo pipefail
 
-MIN_AGE_DAYS=14 # the repo bumps pins only to releases at least two weeks old
+[ -z "${TARGETS_FILE-}" ] || : > "$TARGETS_FILE"
+MIN_AGE_DAYS=14 # the repo bumps pins only to releases at least two weeks old; tools/prepare-bump.sh uses the same
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 mac="$root/scripts/mac/tailnet-desk.sh"
@@ -87,7 +91,8 @@ rows=()
 # Adds one report row for app $1 pinned at $2, whose releases are listed in file $3.
 check() {
   local app=$1 pinned=$2 file=$3 tag time rest version date date_days age count=0 skipped=0
-  local latest='' latest_date='' latest_age=0 target='' target_age=0 state
+  local latest='' latest_date='' latest_age=0 target='' target_age=0 target_date='' state covered='' i
+  local versions=() dates=()
   [ -f "$file" ] || die "$app: no such file: $file"
   while IFS=' ' read -r tag time rest || [ -n "$tag" ]; do
     [ -n "$tag" ] || continue
@@ -101,14 +106,21 @@ check() {
     age=$((today_days - date_days))
     [ "$age" -ge 0 ] || die "$app $version: published after TODAY ($today)"
     count=$((count + 1))
+    versions+=("$version"); dates+=("$date")
     if [ -z "$latest" ] || newer "$version" "$latest"; then latest=$version; latest_date=$date; latest_age=$age; fi
     if newer "$version" "$pinned" && [ "$age" -ge "$MIN_AGE_DAYS" ] && { [ -z "$target" ] || newer "$version" "$target"; }; then
-      target=$version; target_age=$age
+      target=$version; target_age=$age; target_date=$date
     fi
   done < "$file"
   [ "$count" -gt 0 ] || die "$app: no release with a version tag listed"
   if [ -n "$target" ]; then
     state="**Bump due**: to $target, released $target_age days ago"; due=1
+    if [ -n "${TARGETS_FILE-}" ]; then
+      covered=$(for i in "${!versions[@]}"; do
+        if newer "${versions[i]}" "$pinned" && ! newer "${versions[i]}" "$target"; then echo "${versions[i]}:${dates[i]}"; fi
+      done | sort -t. -k1,1nr -k2,2nr -k3,3nr | paste -s -d, -)
+      echo "$app $target $target_date $covered" >> "$TARGETS_FILE"
+    fi
   elif newer "$latest" "$pinned"; then
     state="Newer, but none newer than the pin is $MIN_AGE_DAYS days old yet (the latest is $latest_age days old)"
   else
@@ -128,7 +140,7 @@ printf '%s\n' "${rows[@]}"
 if [ "$due" -eq 1 ]; then
   cat << 'EOF'
 
-To bump a pin, change in both `scripts/mac/tailnet-desk.sh` and `scripts/windows/tailnet-desk.psm1` its version,
+To bump a pin (the Version watch workflow opens a PR that does it), change in both `scripts/mac/tailnet-desk.sh` and `scripts/windows/tailnet-desk.psm1` its version,
 the release date in the comment above it, and the SHA-256 values next to it (for RustDesk on a Mac, both disk images:
 ARM64 and x86_64), taking the hashes from the official downloads. Then run the tests, try the install on a real
 machine, and update the README's Status.
